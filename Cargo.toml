@@ -1,0 +1,33 @@
+# RELEASE BUILDING:
+# RUSTFLAGS="-C target-cpu=native" cargo build --release
+
+
+[workspace]
+resolver = "2"
+members = [
+
+    # the main application
+    "app",
+
+    # components
+    "model",
+    "bll-api",
+    "bll",
+    "dal-api",
+    "dal",
+    "ui",
+
+    # common utilities
+    "common",
+]
+
+# linking optimizations for extra performance in release mode
+# see https://deterministic.space/high-performance-rust.html
+[profile.release]
+strip = "symbols" # can be "none", "debuginfo", "symbols" (also strips debug info)
+debug-assertions = false
+overflow-checks = false
+lto = "fat"         # can be "fat", "thin", "off" (keep it off so PGO may work as of Rust 1.59 -- see https://github.com/rust-lang/rust/issues/90522)
+codegen-units = 1
+debug = false
+panic = "abort"     # disables stack traces / stack unwiding -- can be "unwind", "abort"
