@@ -1,7 +1,18 @@
-//! Common functions for deserialization of Quake 3 Log files
+//! Common functions for parsing of Quake 3 Log files.
+//!
+//! Here you will see a mix of solutions for the parsing:
+//!  1) Regular expressions for the general log line parsing, extracting time, event name and data infos from it,
+//!  2) algorithms in `std::str` for the specific data parsing
+//!
+//! This eclectic approach was picked up to achieve a good balance between:
+//!  1) simplicity -- a single Regex + simple std::str calls would be enough to parse almost all data
+//!  2) speed -- for the complex data formats, the pattern would be so simple that using regex would be overkill: `str::split*()` were used instead
+//!
+//! See also the `benches/quake3_server_event_parsing.rs` for the study of trade-ofs between Regex & `str::split*()`
 
 use std::collections::BTreeMap;
 use std::str::FromStr;
+use futures::TryFutureExt;
 use model::quake3_logs::LogEvent;
 use regex::Regex;
 use once_cell::unsync::Lazy;
@@ -9,7 +20,7 @@ use model::quake3_logs::LogEvent::CaptureTheFlagResults;
 
 
 const LOG_PARSING_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"^ *(?P<hour>\d?\d):(?P<minute>\d{2}) (?P<event_name>[^:]*):? ?(?P<data>.*)$"#)
+    Regex::new(r#"^ *(?P<hour>\d{1,3}):(?P<minute>\d{2}) (?P<event_name>[^:]*):? ?(?P<data>.*)$"#)
         .expect("LOG_PARSING_REGEX compilation failed")
 });
 
@@ -26,7 +37,7 @@ pub fn deserialize_log_line(log_line: &str) -> Result<LogEvent, LogParsingError>
             else {
                 return Err(LogParsingError::MandatoryFieldIsEmpty { field_name: "hour" })
             };
-            let Ok(hour) = hour.as_str().parse::<u8>()
+            let Ok(hour) = hour.as_str().parse::<u16>()
             else {
                 return Err(LogParsingError::UnparseableTime { field_name: "hour", observed_number: hour.as_str().to_string() });
             };
@@ -88,7 +99,8 @@ fn from_parts(event_name: &str, data: &str) -> Result<LogEvent, EventParsingErro
         "ClientUserinfoChanged" => {
             let (numeric, textual) = data.split_once(" ")
                 .ok_or_else(|| EventParsingError::UnknownDataFormat { description: format!("event data doesn't appear to be in the form <CLIENT_ID> <SPACE> key1\\val1\\key2\\val2\\...: log data: '{data}'")})?;
-            let Some(id) = number_from(numeric) else { return Err(EventParsingError::UnparseableNumber { key_name: "client id", observed_data: numeric.to_string() }) };
+            let id = number_from(numeric)
+                .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "client id", observed_data: numeric.to_string() })?;
             let map = map_from_kv_data(textual);
             map.get("n")
                 .map(|name| LogEvent::ClientUserinfoChanged { id, name: name.to_string() })
@@ -105,23 +117,68 @@ fn from_parts(event_name: &str, data: &str) -> Result<LogEvent, EventParsingErro
                 .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "client id", observed_data: data.to_string() })
         },
         "Item" => Ok(LogEvent::Item),
-        "Kill" => Ok(LogEvent::Kill),
+        "say" => Ok(LogEvent::Say),
+        "Kill" => {
+            let (
+                    killer_id,
+                    victim_id,
+                    reason_id,
+                    text_description
+            ) = {
+                let data_format_error = || EventParsingError::UnknownDataFormat { description: format!("`Kill` data doesn't appear to be in the form '<KILLER_ID> <VICTIM_ID> <REASON_ID>: <TEXT_DESCRIPTION>': data is '{data}'") };
+                let parsing_error_generator = |field_name| move |parsing_err| Err(EventParsingError::UnknownDataFormat { description: format!("Can't parse {field_name} from `Kill` data in the form '<KILLER_ID> <VICTIM_ID> <REASON_ID>: <TEXT_DESCRIPTION>' -- '{data}': {parsing_err}") });
+                let mut parts = data.splitn(4, " ");
+                (
+                    parts.next().ok_or_else(data_format_error)?
+                        .parse::<u32>().or_else(parsing_error_generator("KILLER_ID"))?,
+                    parts.next().ok_or_else(data_format_error)?
+                        .parse::<u32>().or_else(parsing_error_generator("VICTIM_ID"))?,
+                    parts.next().ok_or_else(data_format_error)?
+                        .strip_suffix(":").ok_or_else(data_format_error)?
+                        .parse::<u32>().or_else(parsing_error_generator("REASON_ID"))?,
+                    parts.next().ok_or_else(data_format_error)?
+                )
+            };
+            let (killer_name, victim_name, reason_name) = {
+                let text_description_format_error = || EventParsingError::UnknownDataFormat { description: format!("Text description in `Kill` data appears not to be in the form '<KILLER_NAME> killed <VICTIM_NAME> by <REASON_NAME>' -- it was '{text_description}'") };
+                let (killer_name, reminder) = text_description.split_once(" killed ")
+                    .ok_or_else(text_description_format_error)?;
+                let (victim_name, reason_name) = reminder.rsplit_once(" by ")
+                    .ok_or_else(text_description_format_error)?;
+                (killer_name.to_string(), victim_name.to_string(), reason_name.to_string())
+            };
+            Ok(LogEvent::Kill {
+                killer_id,
+                victim_id,
+                reason_id,
+                killer_name,
+                victim_name,
+                reason_name,
+            })
+        },
         "Exit" => Ok(LogEvent::Exit),
         "red" => {
             let (red_value, blue_key_value) = data.split_once(" ")
                 .ok_or_else(|| EventParsingError::UnknownDataFormat { description: format!("event doesn't appear to be in the form 'red:n blue:n': log line: 'red:{data}'")})?;
-            let Some(red) = number_from(red_value) else { return Err(EventParsingError::UnparseableNumber { key_name: "red score", observed_data: red_value.to_string() }) };
-            let Some(blue_value) = blue_key_value.split(":").skip(1).next() else { return Err(EventParsingError::UnknownDataFormat { description: format!("data couldn't be split into key and value for the blue score -- '{blue_key_value}'") }) };
-            let Some(blue) = number_from(blue_value) else { return Err(EventParsingError::UnparseableNumber { key_name: "blue score", observed_data: blue_value.to_string() }) };
+            let red = number_from(red_value)
+                .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "red score", observed_data: red_value.to_string() })?;
+            let blue_value = blue_key_value.split(":").skip(1).next()
+                .ok_or_else(|| EventParsingError::UnknownDataFormat { description: format!("data couldn't be split into key and value for the blue score -- '{blue_key_value}'") })?;
+            let blue= number_from(blue_value)
+                .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "blue score", observed_data: blue_value.to_string() })?;
             Ok(CaptureTheFlagResults { red, blue })
         },
         "score" => {
             let (frags_value, data) = data.split_once(" ")
                 .ok_or_else(|| EventParsingError::UnknownDataFormat { description: format!("event doesn't appear to be in the form 'score: n  ping: n  client: n name': log line: 'score:{data}'")})?;
-            let Some(frags) = number_from(frags_value) else { return Err(EventParsingError::UnparseableNumber { key_name: "frags", observed_data: frags_value.to_string() }) };
-            let Some(client_values) = data.split(": ").skip(2).next() else { return Err(EventParsingError::UnknownDataFormat { description: format!("couldn't extract client values out of `data` -- '{data}'") }) };
-            let Some((client_id_value, client_name)) = client_values.split_once(" ") else { return Err(EventParsingError::UnknownDataFormat { description: format!("couldn't split client id and name out of `client_values` -- '{client_values}'") }) };
-            let Some(client_id) = number_from(client_id_value) else { return Err(EventParsingError::UnparseableNumber { key_name: "client_id", observed_data: client_id_value.to_string() }) };
+            let frags = number_from(frags_value)
+                .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "frags", observed_data: frags_value.to_string() })?;
+            let client_values = data.split(": ").skip(2).next()
+                .ok_or_else(|| EventParsingError::UnknownDataFormat { description: format!("couldn't extract client values out of `data` -- '{data}'") })?;
+            let (client_id_value, client_name) = client_values.split_once(" ")
+                .ok_or_else(|| EventParsingError::UnknownDataFormat { description: format!("couldn't split client id and name out of `client_values` -- '{client_values}'") })?;
+            let client_id = number_from(client_id_value)
+                .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "client_id", observed_data: client_id_value.to_string() })?;
             Ok(LogEvent::Score {frags, id: client_id, name: client_name.to_string()} )
         },
         "ShutdownGame" => Ok(LogEvent::ShutdownGame),
@@ -156,10 +213,12 @@ mod tests {
     // is able to parse the events correctly
 
 
-    /// Tests that the time parser is able to handle hours without the padding zero
+    /// Tests that the time parser is able to handle hours without the padding zero and even with 3 digits
     #[test]
-    fn unpadded_hour() {
-        assert_log_parsing(r#" 0:37 ------------------------------------------------------------"#, LogEvent::Comment);
+    fn unconventional_hours() {
+        assert_log_parsing(r#"  0:37 ------------------------------------------------------------"#, LogEvent::Comment);
+        assert_log_parsing(r#" 80:37 ------------------------------------------------------------"#, LogEvent::Comment);
+        assert_log_parsing(r#"980:37 ------------------------------------------------------------"#, LogEvent::Comment);
     }
 
     /// Tests that comment messages are correctly identified
@@ -209,8 +268,21 @@ mod tests {
     }
 
     #[test]
+    fn say() {
+        assert_log_parsing(r#"981:26 say: Isgalamido: team blue"#, LogEvent::Say)
+    }
+
+    #[test]
     fn kill_event() {
-        assert_log_parsing(r#"20:54 Kill: 1022 2 22: <world> killed Isgalamido by MOD_TRIGGER_HURT"#, LogEvent::Kill);
+        assert_log_parsing(r#"20:54 Kill: 1022 2 22: <world> killed Isgalamido by MOD_TRIGGER_HURT"#,
+                           LogEvent::Kill {
+                               killer_id: 1022,
+                               victim_id: 2,
+                               reason_id: 22,
+                               killer_name: "<world>".to_string(),
+                               victim_name: "Isgalamido".to_string(),
+                               reason_name: "MOD_TRIGGER_HURT".to_string(),
+                           });
     }
 
     #[test]
@@ -223,9 +295,11 @@ mod tests {
         assert_log_parsing(r#"10:12 red:8  blue:6"#, LogEvent::CaptureTheFlagResults { red: 8, blue: 6 })
     }
 
+    /// Test scores with either positive or negative frags
     #[test]
     fn score() {
-        assert_log_parsing(r#"10:12 score: 77  ping: 3  client: 2 Isgalamido"#, LogEvent::Score { frags: 77, id: 2, name: String::from("Isgalamido") })
+        assert_log_parsing(r#"10:12 score: 77  ping: 3  client: 2 Isgalamido"#, LogEvent::Score { frags: 77, id: 2, name: String::from("Isgalamido") });
+        assert_log_parsing(r#"10:12 score: -77  ping: 3  client: 5 Dono da Bola"#, LogEvent::Score { frags: -77, id: 5, name: String::from("Dono da Bola") })
     }
 
     #[test]

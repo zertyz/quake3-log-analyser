@@ -1,18 +1,21 @@
+use crate::deserializer::{deserialize_log_line, LogParsingError};
+use model::{
+    types::Result,
+    quake3_logs::LogEvent
+};
+use dal_api::Quake3ServerEvents;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::pin::Pin;
 use std::task::Poll;
-use futures::{Stream, stream};
-use dal_api::Quake3ServerEvents;
-use model::quake3_logs::LogEvent;
-use crate::deserializer::{deserialize_log_line, LogParsingError};
+use futures::{FutureExt, StreamExt, Stream, stream};
 
 
 /// Size for buffering IO (the larger, more RAM is used, but fewer system calls / context switches / hardware requests are required)
 const BUFFER_SIZE: usize = 1024*1024;
 
 
-struct Quake3LogFileSyncReader {
+pub struct Quake3LogFileSyncReader {
     log_file_path: String,
 }
 
@@ -28,7 +31,7 @@ impl Quake3LogFileSyncReader {
 
 impl Quake3ServerEvents for Quake3LogFileSyncReader {
 
-    fn events_stream(self) -> dal_api::Result<Box<dyn Stream<Item=dal_api::Result<LogEvent>>>> {
+    fn events_stream(self) -> Result<Pin<Box<dyn Stream<Item=Result<LogEvent>>>>> {
         let file = File::open(&self.log_file_path)
             .map_err(|err| format!("Couldn't open Quake3 Server log file '{}' for reading: {err}", self.log_file_path))?;
         let reader = BufReader::with_capacity(BUFFER_SIZE, file);
@@ -50,8 +53,9 @@ impl Quake3ServerEvents for Quake3LogFileSyncReader {
 
                                  )
                 )
-        );
-        Ok(Box::new(stream))
+        )
+/*            .inspect(|event| eprintln!("{event:?}"))*/;
+        Ok(Box::pin(stream))
     }
 
 }

@@ -6,3 +6,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+
+model = { path = "../model" }
+dal-api = { path = "../dal-api" }
+
+log = { version = "0.4", features = [] }
+
+# gives us `Stream`
+futures = "0.3"
+
+[dev-dependencies]
+
+# for integration tests
+dal = { path = "../dal" }
