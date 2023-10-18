@@ -9,4 +9,5 @@ edition = "2021"
 
 model = { path = "../model" }
 
-futures="0.3"       # gives us `Stream`
+# gives us `Stream`
+futures = "0.3"

@@ -15,7 +15,7 @@ members = [
     "bll",
     "dal-api",
     "dal",
-    "ui",
+    "frontend",
 
     # common utilities
     "common",

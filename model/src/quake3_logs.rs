@@ -1,6 +1,7 @@
 //! Contains the modeling of the Quake 3 server logs
 
 /// Contains all the event types (& data) from the log file that we care about
+#[derive(Debug, PartialEq)]
 pub enum LogEvent {
     /// A new game match has started
     InitGame {
@@ -17,16 +18,28 @@ pub enum LogEvent {
     },
     /// An update on the player's info is available
     ClientUserinfoChanged {
+        id: u32,
         name: String,
 
     },
-//    ClientBegin,
+    ClientBegin  {
+        id: u32,
+    },
     ClientDisconnect {
         id: u32,
     },
-//    Item,
+    Item,
     Kill,
     Exit,
-    Score,
+    CaptureTheFlagResults {
+        red: u32,
+        blue: u32,
+    },
+    Score {
+        frags: u32,
+        id: u32,
+        name: String,
+    },
     ShutdownGame,
+    Comment,
 }

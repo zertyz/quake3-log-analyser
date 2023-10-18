@@ -10,4 +10,11 @@ edition = "2021"
 model = { path = "../model" }
 dal-api = { path = "../dal-api" }
 
-futures="0.3"       # gives us `Stream`
+# log file parsing
+regex   = "1.10"
+
+# gives us `Stream`
+futures = "0.3"
+
+once_cell = "1"         # for runtime constants
+

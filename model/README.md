@@ -1,10 +1,10 @@
 Contains business entities, such as log and report models.
 
 Quake 3 log file analysis:
-1) Each log line follows a well defined structure: HOUR <space> EVENT_NAME: DATA
-2) Comment lines are in a special form: HOUR <space> <several dashes>
-3) HOUR is in the form HH:MM, where HH is in the 24 hour format
-4) DATA has two forms: a map: 'name1\val1\name2\val2\...' or a scalar value
+1) Each log line follows a well defined structure: TIME <space> EVENT_NAME: DATA
+2) Comment lines are in a special form: TIME <space> <several dashes>
+3) TIME is in the form HH:MM, where HH is in the 24 hour format
+4) DATA has 3 forms: a map: 'name1\val1\name2\val2\...', a scalar value or custom contents
 5) Each log file may contain several matches in it, enclosed in the `InitGame` and `ShutdownGame` events
 6) Each match may be either in "Capture the flag" or "Deathmatch" mode
 7) A "Deathmatch" has its `InitGame` line in the form: 1:47 InitGame: \sv_floodProtect\1\sv_maxPing\0\sv_minPing\0\sv_maxRate\10000\sv_minRate\0\sv_hostname\Code Miner Server\g_gametype\0\sv_privateClients\2\sv_maxclients\16\sv_allowDownload\0\bot_minplayers\0\dmflags\0\fraglimit\20\timelimit\15\g_maxGameClients\0\capturelimit\8\version\ioq3 1.36 linux-x86_64 Apr 12 2009\protocol\68\mapname\q3dm17\gamename\baseq3\g_needpass\0
