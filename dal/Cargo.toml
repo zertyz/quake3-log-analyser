@@ -9,12 +9,8 @@ edition = "2021"
 
 model = { path = "../model" }
 dal-api = { path = "../dal-api" }
-
-# log file parsing
-regex   = "1.10"
+quake3-server-log = { path = "../quake3-server-log" }
 
 # gives us `Stream`
 futures = "0.3"
-
-once_cell = "1"         # for runtime constants
 

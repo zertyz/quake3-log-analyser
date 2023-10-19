@@ -1,14 +1,14 @@
-use crate::deserializer::{deserialize_log_line, LogParsingError};
-use model::{
-    types::Result,
-    quake3_logs::LogEvent
-};
+use model::types::Result;
 use dal_api::Quake3ServerEvents;
+use quake3_server_log::{
+    model::LogEvent,
+    deserializer::{deserialize_log_line, LogParsingError},
+};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::pin::Pin;
 use std::task::Poll;
-use futures::{FutureExt, StreamExt, Stream, stream};
+use futures::{FutureExt, Stream, stream, StreamExt};
 
 
 /// Size for buffering IO (the larger, more RAM is used, but fewer system calls / context switches / hardware requests are required)

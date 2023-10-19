@@ -1,10 +1,8 @@
-use model::{
-    types::Result,
-    quake3_logs::LogEvent,
-};
+use model::types::Result;
 use std::fmt::Debug;
 use std::pin::Pin;
 use futures::Stream;
+use quake3_server_log::model::LogEvent;
 
 
 /// Feed for Quake 3 server events

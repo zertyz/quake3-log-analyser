@@ -20,4 +20,8 @@ pub struct GameMatchSummary {
     pub kills: BTreeMap<String, i32>,
 
     pub scores: Option<BTreeMap<String, i32>>,
+
+    /// Vector of users who disconnected before the game ended,
+    /// in the form (id, nick, frags)
+    pub disconnected_players: Option<Vec<(u32, String, i32)>>
 }

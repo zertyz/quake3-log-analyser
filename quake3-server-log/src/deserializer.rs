@@ -12,11 +12,9 @@
 
 use std::collections::BTreeMap;
 use std::str::FromStr;
-use futures::TryFutureExt;
-use model::quake3_logs::LogEvent;
 use regex::Regex;
 use once_cell::unsync::Lazy;
-use model::quake3_logs::LogEvent::CaptureTheFlagResults;
+use crate::model::LogEvent;
 
 
 const LOG_PARSING_REGEX: Lazy<Regex> = Lazy::new(|| {
@@ -113,7 +111,7 @@ fn from_parts(event_name: &str, data: &str) -> Result<LogEvent, EventParsingErro
         }
         "ClientDisconnect" => {
             number_from(data)
-                .map(|id| LogEvent::ClientConnect { id })
+                .map(|id| LogEvent::ClientDisconnect { id })
                 .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "client id", observed_data: data.to_string() })
         },
         "Item" => Ok(LogEvent::Item),
@@ -166,7 +164,7 @@ fn from_parts(event_name: &str, data: &str) -> Result<LogEvent, EventParsingErro
                 .ok_or_else(|| EventParsingError::UnknownDataFormat { description: format!("data couldn't be split into key and value for the blue score -- '{blue_key_value}'") })?;
             let blue= number_from(blue_value)
                 .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "blue score", observed_data: blue_value.to_string() })?;
-            Ok(CaptureTheFlagResults { red, blue })
+            Ok(LogEvent::CaptureTheFlagResults { red, blue })
         },
         "score" => {
             let (frags_value, data) = data.split_once(" ")
@@ -260,6 +258,11 @@ mod tests {
     #[test]
     fn client_begin() {
         assert_log_parsing(r#" 2:33 ClientBegin: 2"#, LogEvent::ClientBegin {id: 2})
+    }
+
+    #[test]
+    fn client_disconnect() {
+        assert_log_parsing(r#" 2:33 ClientDisconnect: 2"#, LogEvent::ClientDisconnect {id: 2});
     }
 
     #[test]

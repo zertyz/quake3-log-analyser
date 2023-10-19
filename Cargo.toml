@@ -19,6 +19,9 @@ members = [
 
     # common utilities
     "common",
+
+    # general libraries
+    "quake3-server-log",
 ]
 
 # linking optimizations for extra performance in release mode

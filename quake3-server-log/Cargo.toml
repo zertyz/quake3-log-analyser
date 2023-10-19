@@ -1,0 +1,26 @@
+[package]
+name = "quake3-server-log"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+# for runtime constants
+once_cell = "1"
+
+# log file parsing
+regex   = "1.10"
+
+
+[dev-dependencies]
+
+# dependencies for benchmarks
+#############################
+
+criterion    = { version = "0.5", features=["html_reports"] }
+
+[[bench]]
+name = "parsing_strategies"
+harness = false

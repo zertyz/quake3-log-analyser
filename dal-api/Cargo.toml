@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 
 model = { path = "../model" }
+quake3-server-log = { path = "../quake3-server-log" }
 
 # gives us `Stream`
 futures = "0.3"
