@@ -7,7 +7,8 @@
 //!   2) Extracting the event data
 //!
 //! # Analysis 2023-10-19
-//!     1) Dismembering the event into its parts is 5000x faster with `str::split_n()` than with `Regex`. It is also simpler. We have a clear winner here.
+//!     1) Dismembering the event into its parts is 3200x faster with `str::split_n()` than with `Regex`. It is also simpler. We have a clear winner here.
+//!     2) Due to the astonishing results above, the part 2 wasn't even done: split for the win!
 //!
 //!   `reactive-mutiny`'s Atomic is the winner on all tests, for a variety of Intel, AMD and ARM cpus -- sometimes winning by 2x.
 //!
@@ -67,10 +68,11 @@ fn regex_event_identification(log_line: &str) -> (&str, &str, &str) {
 }
 
 fn split_event_identification(log_line: &str) -> (&str, &str, &str) {
-    let mut parts = log_line.splitn(3, " ");
+    let mut parts = log_line.trim_start().splitn(3, " ");
     (
         parts.next()
-            .expect("split_event_identification(): Couldn't extract `time` from the log line"),
+            .expect("split_event_identification(): Couldn't extract `time` from the log line")
+            .trim_end_matches(":"),
         parts.next()
             .expect("split_event_identification(): Couldn't extract `event_name` from the log line"),
         parts.next()

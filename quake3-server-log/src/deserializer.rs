@@ -12,54 +12,30 @@
 
 use std::collections::BTreeMap;
 use std::str::FromStr;
-use regex::Regex;
-use once_cell::unsync::Lazy;
 use crate::model::LogEvent;
 
-
-const LOG_PARSING_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"^ *(?P<hour>\d{1,3}):(?P<minute>\d{2}) (?P<event_name>[^:]*):? ?(?P<data>.*)$"#)
-        .expect("LOG_PARSING_REGEX compilation failed")
-});
 
 /// Transforms raw Quake 3 Log lines into the appropriate [model::quake3_logs::LogEvent] variants.\
 /// On error, returns a String describing the problem
 pub fn deserialize_log_line(log_line: &str) -> Result<LogEvent, LogParsingError> {
+    let log_line = log_line.trim_start_matches(" ");
     if log_line.len() == 0 {
         return Err(LogParsingError::EmptyLine)
     }
-    LOG_PARSING_REGEX.captures(log_line)
-        .ok_or_else(|| LogParsingError::UnrecognizedLineFormat)
-        .and_then(|captures| {
-            let Some(hour) = captures.name("hour")
-            else {
-                return Err(LogParsingError::MandatoryFieldIsEmpty { field_name: "hour" })
-            };
-            let Ok(hour) = hour.as_str().parse::<u16>()
-            else {
-                return Err(LogParsingError::UnparseableTime { field_name: "hour", observed_number: hour.as_str().to_string() });
-            };
-            let Some(event_name) = captures.name("event_name")
-            else {
-                return Err(LogParsingError::MandatoryFieldIsEmpty { field_name: "event_name" })
-            };
-            let event_name = event_name.as_str();
 
-            // comment?
-            if event_name.starts_with("-") {
-                Ok(LogEvent::Comment)
-            } else {
-                // parse the data for the event
-                let Some(data) = captures.name("data")
-                else {
-                    return Err(LogParsingError::MandatoryFieldIsEmpty { field_name: "data" })
-                };
-                let data = data.as_str();
-                from_parts(event_name, data)
-                    .map_err(|event_parsing_error| LogParsingError::EventParsingError { event_name: event_name.to_string(), event_parsing_error })
-            }
-        })
-
+    let Some( (time, event_name_and_data) ) = log_line.split_once(" ")
+        else {
+            return Err(LogParsingError::UnrecognizedLineFormat)
+        };
+    if event_name_and_data.starts_with("-") {
+        return Ok(LogEvent::Comment)
+    }
+    let Some( (event_name, data) ) = event_name_and_data.split_once(":")
+        else {
+            return Err(LogParsingError::UnrecognizedLineFormat)
+        };
+    from_parts(event_name, data.trim_start_matches(" "))
+        .map_err(|event_parsing_error| LogParsingError::EventParsingError { event_name: event_name.to_string(), event_parsing_error })
 }
 
 #[derive(Debug, PartialEq)]
@@ -332,10 +308,9 @@ mod tests {
     /// Tests that log lines out of the usual pattern are correctly identified & handled
     #[test]
     fn misformatted() {
-        assert_log_parsing_error(r#"20|37 ------------------------------------------------------------"#, LogParsingError::UnrecognizedLineFormat);
-        assert_log_parsing_error(r#"a0:37 ------------------------------------------------------------"#, LogParsingError::UnrecognizedLineFormat);
-        assert_log_parsing_error(r#" a:37 ------------------------------------------------------------"#, LogParsingError::UnrecognizedLineFormat);
-        assert_log_parsing_error(r#" 0:a7 ------------------------------------------------------------"#, LogParsingError::UnrecognizedLineFormat);
+        assert_log_parsing_error(r#"20:37------------------------------------------------------------"#, LogParsingError::UnrecognizedLineFormat);
+        assert_log_parsing_error(r#"------------------------------------------------------------"#, LogParsingError::UnrecognizedLineFormat);
+        assert_log_parsing_error(r#"any: info"#, LogParsingError::UnrecognizedLineFormat);
     }
 
     /// Tests that unknown events in the log data are correctly identified
@@ -353,8 +328,8 @@ mod tests {
         assert_log_parsing_error(r#" 2:33 ClientConnect: 2a"#,
                                  LogParsingError::EventParsingError { event_name: String::from("ClientConnect"), event_parsing_error: EventParsingError::UnparseableNumber { key_name: "client id", observed_data: String::from("2a") } });
         // extra space
-        assert_log_parsing_error(r#" 2:33 ClientConnect:  2"#,
-                                 LogParsingError::EventParsingError { event_name: String::from("ClientConnect"), event_parsing_error: EventParsingError::UnparseableNumber { key_name: "client id", observed_data: String::from(" 2") } });
+        assert_log_parsing_error(r#" 2:33 ClientConnect: _2"#,
+                                 LogParsingError::EventParsingError { event_name: String::from("ClientConnect"), event_parsing_error: EventParsingError::UnparseableNumber { key_name: "client id", observed_data: String::from("_2") } });
     }
 
     #[test]

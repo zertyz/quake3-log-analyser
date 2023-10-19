@@ -7,17 +7,16 @@ edition = "2021"
 
 [dependencies]
 
-# for runtime constants
-once_cell = "1"
-
-# log file parsing
-regex   = "1.10"
-
 
 [dev-dependencies]
 
 # dependencies for benchmarks
 #############################
+
+# experimental log lines parsing
+regex   = "1.10"
+# for precompiled regex constants
+once_cell = "1"
 
 criterion    = { version = "0.5", features=["html_reports"] }
 

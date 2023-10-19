@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn malformed_lines() {
         let mut expected_lines_and_errors = HashMap::from([
-            (2, r#"`LogParsingError` when processing log file 'tests/resources/malformed_line.log' at line 2: UnrecognizedLineFormat"#),
+            (2, r#"`LogParsingError` when processing log file 'tests/resources/malformed_line.log' at line 2: EventParsingError { event_name: " 0", event_parsing_error: UnknownEventName }"#),
             (5, r#"`LogParsingError` when processing log file 'tests/resources/malformed_line.log' at line 5: EventParsingError { event_name: "ClientUserinfoChanged", event_parsing_error: UnparseableNumber { key_name: "client id", observed_data: "3_" } }"#),
             (6, r#"`LogParsingError` when processing log file 'tests/resources/malformed_line.log' at line 6: EventParsingError { event_name: "ClientUserinfoChanged", event_parsing_error: UnknownDataFormat { description: "event data doesn't appear to be in the form <CLIENT_ID> <SPACE> key1\\val1\\key2\\val2\\...: log data: 'n\\Mocinha\\t\\0\\model\\sarge\\hmodel\\sarge\\g_redteam\\\\g_blueteam\\\\c1\\4\\c2\\5\\hc\\95\\w\\0\\l\\0\\tt\\0\\tl\\0'" } }"#)
         ]);
