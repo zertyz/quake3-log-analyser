@@ -1,5 +1,5 @@
 [package]
-name = "ui"
+name = "presentation"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,6 +9,14 @@ edition = "2021"
 
 model = { path = "../model" }
 
-# json serialization for the report output
+log = { version = "0.4", features = [] }
+
+# gives us `Stream`
+futures = "0.3"
+
+
+[dev-dependencies]
+
+# json serialization to validate the reported outputs in tests
 serde = "1"
 serde_json = "1"

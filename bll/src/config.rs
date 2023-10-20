@@ -1,4 +1,4 @@
-//! Resting place for [Config] & friends
+//! Resting place for BLL's [Config] & friends
 
 
 use std::collections::HashSet;

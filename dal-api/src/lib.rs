@@ -1,3 +1,7 @@
+mod config;
+pub use config::*;
+
+
 use model::{
     types::Result,
     quake3_events::Quake3Events,

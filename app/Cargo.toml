@@ -9,3 +9,12 @@ edition = "2021"
 model = { path = "../model" }
 dal-api = { path = "../dal-api" }
 dal = { path = "../dal" }
+bll = { path = "../bll" }
+presentation = { path = "../presentation" }
+
+# command-line parsing
+structopt    = "0.3"       # command line parsing
+strum        = "0.25"      # enums serialization/deserialization
+strum_macros = "0.25"
+
+simple_logger = "4.2"   # a dirty and nice console logger

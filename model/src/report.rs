@@ -1,13 +1,11 @@
 //! Contains summary data used to build reports
 
 use std::collections::{BTreeSet, BTreeMap};
+use std::pin::Pin;
+use futures::Stream;
 
-/// Grouped information for all matches / games
-#[derive(Debug,PartialEq)]
-pub struct GamesSummary {
-    /// The [GameMatchSummary] for each of the available `game match id`s
-    pub games: BTreeMap<u32, GameMatchSummary>,
-}
+/// Grouped information for all matches / games available
+pub type GamesSummary = Pin<Box<dyn Stream<Item=Result<GameMatchSummary, Box<dyn std::error::Error>>>>>;
 
 /// Grouped information for a single match / game
 #[derive(Debug,PartialEq)]
@@ -19,7 +17,7 @@ pub struct GameMatchSummary {
     /// The frag score for each of the [Self::players].
     pub kills: BTreeMap<String, i32>,
 
-    pub scores: Option<BTreeMap<String, i32>>,
+    pub game_reported_scores: Option<BTreeMap<String, i32>>,
 
     /// Vector of users who disconnected before the game ended,
     /// in the form (id, nick, frags)

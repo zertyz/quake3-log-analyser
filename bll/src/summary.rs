@@ -17,6 +17,7 @@ use std::sync::Arc;
 use futures::{Stream, stream, StreamExt};
 use dal_api::Quake3ServerEvents;
 use log::warn;
+use model::report::GamesSummary;
 use crate::{Config, EventAnalyserOperations};
 use crate::dtos::{AnalysedEvent, LogicEvent, CompositeEvent, EventModelViolations};
 
@@ -247,7 +248,7 @@ pub fn summarize(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent>) 
                                 total_kills: 0,
                                 players: BTreeSet::new(),
                                 kills: BTreeMap::new(),
-                                scores: None,
+                                game_reported_scores: None,
                                 disconnected_players: None,
                             })
                             .map_or_else(|| None,
@@ -315,7 +316,7 @@ pub fn summarize(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent>) 
 
                     LogicEvent::ReportedScore { quake3_event_id, frags, client_id, name } =>
                         if let Some(ref mut current_game_summary) = current_game_summary {
-                            current_game_summary.scores.get_or_insert_with(|| BTreeMap::new())
+                            current_game_summary.game_reported_scores.get_or_insert_with(|| BTreeMap::new())
                                 .insert(name, frags);
                             None
                         } else {
@@ -345,7 +346,7 @@ pub fn summarize(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent>) 
         .filter_map(|composite_event_option| future::ready(composite_event_option))
 }
 
-pub fn summarize_games(config: Arc<Config>, log_dao: impl Quake3ServerEvents + 'static) -> Result<Pin<Box<dyn Stream<Item=Result<GameMatchSummary>>>>> {
+pub fn summarize_games(config: Arc<Config>, log_dao: impl Quake3ServerEvents + 'static) -> Result<GamesSummary> {
     let stream = compose(config.clone(), log_dao)?;
     if config.processor_pipeline == HashSet::from([EventAnalyserOperations::Kills]) {
         return Ok(Box::pin(summarize(config.clone(), kills(config.clone(), stream))))
@@ -359,123 +360,6 @@ pub fn summarize_games(config: Arc<Config>, log_dao: impl Quake3ServerEvents + '
         Err(Box::from(format!("Summary Logic: Unknown combination of logic operations for the processor_pipeline {:?}", config.processor_pipeline)))
     }
 }
-
-pub fn _summarize_games(log_dao: impl Quake3ServerEvents, log_failures: bool) -> Result<impl Stream<Item=Result<GameMatchSummary>>> {
-
-    let stream = log_dao.events_stream()
-        .map_err(|err| format!("summarize_games(): failed at fetching the events `Stream`: {err}"))?;
-
-    let stream = stream
-        .inspect(move |event| if log_failures {
-            if let Quake3Events::Error { event_id, err } = event {
-                warn!("Failed to process event #{{event_id}}: {err}");
-            }
-        });
-
-    let mut current_game_summary = None;
-    let mut player_ids_and_nicks = HashMap::<u32, String>::new();
-
-    let stream = stream
-        .map(move |event| {
-            match event {
-                Quake3Events::InitGame { .. } => {
-                    player_ids_and_nicks.clear();
-                    current_game_summary
-                        .replace(GameMatchSummary {
-                            total_kills: 0,
-                            players: BTreeSet::new(),
-                            kills: BTreeMap::new(),
-                            scores: None,
-                            disconnected_players: None,
-                        })
-                        .map_or_else(|| None,
-                                     |previous| Some(Err(Box::from(format!("Event #{{event_id}}: Two `InitGame` events received before a `ShutdownGame`")))) )
-                },
-
-                Quake3Events::ClientConnect { event_id, client_id: id } => {
-                    player_ids_and_nicks.insert(id, format!("Player {id}"))
-                        .map_or_else(|| None,
-                                     |old_nick| Some(Err(Box::from(format!("Event #{event_id}: Two `ClientConnect {{id: {id}}}` events received before a `ClientDisconnect` -- '{old_nick}' was there already")))))
-                },
-
-                Quake3Events::ClientUserinfoChanged { event_id, client_id: id, name: new_nick } => {
-                    let Some(ref mut current_game_summary) = current_game_summary
-                        else {
-                            return Some(Err(Box::from(format!("Event #{event_id}: `ClientUserinfoChanged {{id: {id}, name: {new_nick:?}}}` event received before `InitGame`"))))
-                        };
-                    player_ids_and_nicks.get_mut(&id)
-                        .map_or_else(|| Some(Err(Box::from(format!("Event #{event_id}: `ClientUserinfoChanged` event received before a `ClientConnect`")))),
-                                     |nick| {
-                                         current_game_summary.players.remove(nick);
-                                         current_game_summary.players.insert(new_nick.clone());
-                                         current_game_summary.kills.remove(nick)
-                                             .and_then(|frags| current_game_summary.kills.insert(new_nick.clone(), frags));
-                                         nick.clear();
-                                         nick.push_str(&new_nick);
-                                         None
-                                     })
-
-                },
-
-                Quake3Events::ClientDisconnect { event_id, client_id: id } => {
-                    let Some(ref mut current_game_summary) = current_game_summary
-                        else {
-                            return Some(Err(Box::from(format!("Event #{event_id}: `ClientDisconnect` event received before `InitGame`"))))
-                        };
-                    player_ids_and_nicks.remove(&id)
-                        .map_or_else(|| Some(Err(Box::from(format!("Event #{event_id}: `ClientDisconnect` event received before `ClientConnect`")))),
-                                     |nick| {
-                                         current_game_summary.players.remove(&nick);
-                                         if let Some(frags) = current_game_summary.kills.remove(&nick) {
-                                             current_game_summary.disconnected_players.get_or_insert_with(|| Vec::new())
-                                                 .push((id, nick, frags));
-                                         }
-                                         None
-                                     }
-                        )
-                },
-
-                Quake3Events::Kill { event_id, killer_id, victim_id, reason_id, killer_name, victim_name, reason_name } => {
-                    let Some(ref mut current_game_summary) = current_game_summary
-                        else {
-                            return Some(Err(Box::from(format!("Event #{event_id}: `Kill` event received before `InitGame`"))))
-                        };
-                    if killer_name != "<world>" {
-                        current_game_summary.players.insert(killer_name.clone());
-                        current_game_summary.kills.entry(killer_name)
-                            .and_modify(|frags| *frags += 1)
-                            .or_insert(1);
-                    } else {
-                        current_game_summary.kills.entry(victim_name.clone())
-                            .and_modify(|frags| *frags -= 1)
-                            .or_insert(-1);
-                    }
-                    current_game_summary.players.insert(victim_name);
-                    current_game_summary.total_kills += 1;
-                    None
-                },
-                Quake3Events::Score { event_id, frags, client_id: id, name } => {
-                    let Some(ref mut current_game_summary) = current_game_summary
-                        else {
-                            return Some(Err(Box::from(format!("Event #{event_id}: `Score` event received before `InitGame`"))))
-                        };
-                    current_game_summary.scores.get_or_insert_with(|| BTreeMap::new())
-                        .insert(name, frags);
-                    None
-                },
-                Quake3Events::ShutdownGame { event_id } => {
-                    current_game_summary.take()
-                        .map_or_else(|| Some(Err(Box::from(format!("Event #{event_id}: `ShutdownGame` event received before `InitGame`")))),
-                                     |current_game_summary| Some(Ok(current_game_summary)))
-                },
-                Quake3Events::Exit { event_id } => None,
-                Quake3Events::Error { event_id, err } => return Some(Err(Box::from(format!("Event #{{event_id}}: Feed error: {err}")))),
-            }
-        })
-        .filter_map(|event| future::ready(event));
-    Ok(stream)
-}
-
 
 /// Tests the [summary](super) logic module
 #[cfg(test)]
@@ -528,7 +412,7 @@ mod tests {
                     ("Player1".to_owned(), 1),
                     ("Player2".to_owned(), 1),
                 ]),
-                scores: None,
+                game_reported_scores: None,
                 disconnected_players: None,
             },
         ];
@@ -561,7 +445,7 @@ mod tests {
                     ("Player1".to_owned(), -2),
                     ("Player2".to_owned(), -1),
                 ]),
-                scores: None,
+                game_reported_scores: None,
                 disconnected_players: None,
             },
         ];
@@ -591,7 +475,7 @@ mod tests {
                     ("Player1".to_owned(), 0),
                     ("Player2".to_owned(), 0),
                 ]),
-                scores: None,
+                game_reported_scores: None,
                 disconnected_players: None,
             },
         ];
@@ -628,7 +512,7 @@ mod tests {
                 kills: BTreeMap::from([
                     ("Mielina".to_owned(), 1),
                 ]),
-                scores: None,
+                game_reported_scores: None,
                 disconnected_players: Some(vec![
                     (1, "Bartolo".to_owned(), 1),
                 ]),
@@ -668,7 +552,7 @@ mod tests {
                     ("Bartolo".to_owned(), 2),
                     ("Mielina".to_owned(), 1),
                 ]),
-                scores: None,
+                game_reported_scores: None,
                 disconnected_players: Some(vec![
                     (1, "Bartolo".to_owned(), 1),
                 ]),
@@ -705,7 +589,7 @@ mod tests {
                     ("Bartholo".to_owned(), 3),
                     ("Mielina".to_owned(), 1),
                 ]),
-                scores: None,
+                game_reported_scores: None,
                 disconnected_players: None,
             },
         ];
@@ -866,7 +750,7 @@ mod tests {
                     ("Isgalamido".to_owned(), 19),
                     ("Zeh".to_owned(), 20),
                 ]),
-                scores: Some(BTreeMap::from([
+                game_reported_scores: Some(BTreeMap::from([
                     ("Assasinu Credi".to_owned(), 11),
                     ("Dono da Bola".to_owned(), 5),
                     ("Isgalamido".to_owned(), 19),
