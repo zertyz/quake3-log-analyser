@@ -17,4 +17,4 @@ structopt    = "0.3"       # command line parsing
 strum        = "0.25"      # enums serialization/deserialization
 strum_macros = "0.25"
 
-simple_logger = "4.2"   # a dirty and nice console logger
+simple_logger = {version = "4.2", features = ["stderr"]}   # a dirty and nice console logger

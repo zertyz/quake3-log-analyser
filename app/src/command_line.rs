@@ -8,14 +8,14 @@ use structopt::StructOpt;
 ================================================================
 Generates a stream of Game Matches from Quake3 Server log files.
 By default, reads from the file at './qgames.log'
- ================================================================
+================================================================
 ")]
 pub struct CommandLineOptions {
 
     // FLAGS
     ////////
 
-    /// Logs any non-fatal errors to stderr
+    /// Outputs any non-fatal errors or inconsistencies in the events to stderr
     #[structopt(long)]
     pub verbose: bool,
 
