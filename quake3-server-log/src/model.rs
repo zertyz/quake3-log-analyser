@@ -1,8 +1,8 @@
-//! Contains the modeling of the Quake 3 server logs
+//! Resting place for [Quake3Events]
 
-/// Contains all the event types (& data) from the log file that we care about
+/// Mappings for Quake 3 server events
 #[derive(Debug, PartialEq)]
-pub enum LogEvent {
+pub enum Quake3Events {
     /// A new game match has started
     InitGame {
         /// Applicable to the "Deathmatch" mode, specifies the maximum score (frag) a player may have -- after which, the match is declared over

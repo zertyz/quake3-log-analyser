@@ -1,5 +1,5 @@
-//! Compares the performance of Regular Experssions and `std::str::*` functions to parse Quake3 server log files
-//! to help us decide on the implementation strategy, which, for this project should be a reasonable balance
+//! Compares the performance of Regular Expressions and `std::str::*` functions to parse Quake3 server log files,
+//! helping us decide on the implementation strategy, which, for this project should be a reasonable balance
 //! between performance and simplicity.
 //!
 //! The task of parsing a log file has been broken down in 2 parts for the measurements here:
@@ -7,18 +7,16 @@
 //!   2) Extracting the event data
 //!
 //! # Analysis 2023-10-19
-//!     1) Dismembering the event into its parts is 3200x faster with `str::split_n()` than with `Regex`. It is also simpler. We have a clear winner here.
+//!     1) Dismembering the event into its parts is 3200x faster with `str::split_n()` then with `Regex`. It is also simpler. We have a clear winner here.
 //!     2) Due to the astonishing results above, the part 2 wasn't even done: split for the win!
 //!
-//!   `reactive-mutiny`'s Atomic is the winner on all tests, for a variety of Intel, AMD and ARM cpus -- sometimes winning by 2x.
-//!
-//! Out of the results here, it was decided that the `reactive-mutiny`'s Atomic Channel will be used instead of Tokio's
-//!
 
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkGroup, measurement::WallTime, black_box};
+use criterion::{criterion_group, criterion_main, Criterion, black_box};
 use once_cell::sync::Lazy;
 use regex::Regex;
 
+
+/// Some sample log lines
 const LOG_EXERPT: &[&str] = &[
     r#"  0:37 ------------------------------------------------------------"#,
     r#" 80:37 ------------------------------------------------------------"#,
