@@ -1,7 +1,10 @@
-use model::types::Result;
+use model::{
+    types::Result,
+    quake3_events::Quake3Events,
+};
 use dal_api::Quake3ServerEvents;
 use quake3_server_log::{
-    model::Quake3Events,
+    model::Quake3FullEvents,
     deserializer::{deserialize_log_line, LogParsingError},
 };
 use std::fs::File;
@@ -9,6 +12,7 @@ use std::io::{BufRead, BufReader};
 use std::pin::Pin;
 use std::task::Poll;
 use futures::{FutureExt, Stream, stream, StreamExt};
+use crate::events_translation::translate_quake3_events;
 
 
 /// Size for buffering IO (the larger, more RAM is used, but fewer system calls / context switches / hardware requests are required)
@@ -31,7 +35,7 @@ impl Quake3LogFileSyncReader {
 
 impl Quake3ServerEvents for Quake3LogFileSyncReader {
 
-    fn events_stream(self) -> Result<Pin<Box<dyn Stream<Item=Result<Quake3Events>>>>> {
+    fn events_stream(self) -> Result<Pin<Box<dyn Stream<Item=Quake3Events>>>> {
         let file = File::open(&self.log_file_path)
             .map_err(|err| format!("Couldn't open Quake3 Server log file '{}' for reading: {err}", self.log_file_path))?;
         let reader = BufReader::with_capacity(BUFFER_SIZE, file);
@@ -55,7 +59,7 @@ impl Quake3ServerEvents for Quake3LogFileSyncReader {
                 )
         )
 /*            .inspect(|event| eprintln!("{event:?}"))*/;
-        Ok(Box::pin(stream))
+        Ok(Box::pin(translate_quake3_events(stream)))
     }
 
 }
@@ -80,10 +84,10 @@ mod tests {
         let log_dao = Quake3LogFileSyncReader::new(GOOD_LOG_FILE_LOCATION);
         let stream = log_dao.events_stream().expect("Couldn't create the `Stream`");
         let stream = futures::executor::block_on_stream(Pin::from(stream));
-        let log_lines_count = stream.enumerate()
-            .inspect(|(line_number, event_result)| assert!(event_result.is_ok(), "Parsing log line #{} yielded a unexpected result {event_result:?}", line_number+1))
+        let events_count = stream
+            .inspect(|event| assert!(event.is_ok(), "Parsing log line #{} yielded a unexpected error {event:?}", event.event_id()))
             .count();
-        assert_eq!(log_lines_count, 100, "Unexpected number of parsed log lines");
+        assert_eq!(events_count, 32, "Unexpected number of parsed log lines");
     }
 
     /// Tests that opening a non-existing file yields the expected error result & message
@@ -108,17 +112,18 @@ mod tests {
         let log_dao = Quake3LogFileSyncReader::new(MALFORMED_LOG_FILE_LOCATION);
         let stream = log_dao.events_stream().expect("Couldn't create the `Stream`");
         let stream = futures::executor::block_on_stream(Pin::from(stream));
-        let log_lines_count = stream.enumerate()
-            .inspect(|(line_number, event_result)| {
-                if let Some(expected_error) = expected_lines_and_errors.remove(&(line_number+1)) {
-                    assert!(event_result.is_err(), "Parsing the malformed log line #{} went unreported -- the parser said all was good: {event_result:?}", line_number+1);
-                    assert_eq!(event_result.as_ref().unwrap_err().to_string(), expected_error.to_string(), "Error report differs at the malformed line #{}", line_number+1)
+        let events_count = stream
+            .inspect(|event| {
+                let line_number = event.event_id();
+                if let Some(expected_error) = expected_lines_and_errors.remove(&line_number) {
+                    assert!(event.is_err(), "Parsing the malformed log line #{line_number} went unreported -- the parser said all was good: {event:?}");
+                    assert_eq!(event.unwrap_err().to_string(), expected_error.to_string(), "Error report differs at the malformed line #{line_number}")
                 } else {
-                    assert!(event_result.is_ok(), "Parsing log line #{} yielded a unexpected result {event_result:?}", line_number+1)
+                    assert!(event.is_ok(), "Parsing log line #{line_number} yielded a unexpected result {event:?}")
                 }
             })
             .count();
-        assert_eq!(log_lines_count, 7, "Unexpected number of parsed log lines");
+        assert_eq!(events_count, 5, "Unexpected number of events");
         assert!(expected_lines_and_errors.len() == 0, "Not all expected errors were cought: {} are left: {:?}", expected_lines_and_errors.len(), expected_lines_and_errors);
     }
 

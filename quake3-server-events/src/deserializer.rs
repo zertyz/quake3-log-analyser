@@ -12,12 +12,12 @@
 
 use std::collections::BTreeMap;
 use std::str::FromStr;
-use crate::model::Quake3Events;
+use crate::model::Quake3FullEvents;
 
 
 /// Transforms raw Quake 3 Log lines into the appropriate [model::quake3_logs::LogEvent] variants.\
 /// On error, returns a String describing the problem
-pub fn deserialize_log_line(log_line: &str) -> Result<Quake3Events, LogParsingError> {
+pub fn deserialize_log_line(log_line: &str) -> Result<Quake3FullEvents, LogParsingError> {
     let log_line = log_line.trim_start_matches(" ");
     if log_line.len() == 0 {
         return Err(LogParsingError::EmptyLine)
@@ -28,7 +28,7 @@ pub fn deserialize_log_line(log_line: &str) -> Result<Quake3Events, LogParsingEr
             return Err(LogParsingError::UnrecognizedLineFormat)
         };
     if event_name_and_data.starts_with("-") {
-        return Ok(Quake3Events::Comment)
+        return Ok(Quake3FullEvents::Comment)
     }
     let Some( (event_name, data) ) = event_name_and_data.split_once(":")
         else {
@@ -55,11 +55,11 @@ pub enum EventParsingError {
     UnknownDataFormat { description: String },
 }
 
-fn from_parts(event_name: &str, data: &str) -> Result<Quake3Events, EventParsingError> {
+fn from_parts(event_name: &str, data: &str) -> Result<Quake3FullEvents, EventParsingError> {
     match event_name {
         "InitGame" => {
             let map = map_from_kv_data(data);
-            Ok(Quake3Events::InitGame {
+            Ok(Quake3FullEvents::InitGame {
                 frag_limit: map.get("fraglimit").and_then(|n| number_from(n)),
                 capture_limit: map.get("capturelimit").and_then(|n| number_from(n)),
                 time_limit_min: map.get("timelimit").and_then(|n| number_from(n)),
@@ -67,7 +67,7 @@ fn from_parts(event_name: &str, data: &str) -> Result<Quake3Events, EventParsing
         },
         "ClientConnect" => {
             number_from(data)
-                .map(|id| Quake3Events::ClientConnect { id })
+                .map(|id| Quake3FullEvents::ClientConnect { id })
                 .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "client id", observed_data: data.to_string() })
         },
         "ClientUserinfoChanged" => {
@@ -77,21 +77,21 @@ fn from_parts(event_name: &str, data: &str) -> Result<Quake3Events, EventParsing
                 .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "client id", observed_data: numeric.to_string() })?;
             let map = map_from_kv_data(textual);
             map.get("n")
-                .map(|name| Quake3Events::ClientUserinfoChanged { id, name: name.to_string() })
+                .map(|name| Quake3FullEvents::ClientUserinfoChanged { id, name: name.to_string() })
                 .ok_or_else(|| EventParsingError::AbsentKey { key_name: "n" })
         },
         "ClientBegin" => {
             number_from(data)
-                .map(|id| Quake3Events::ClientBegin { id })
+                .map(|id| Quake3FullEvents::ClientBegin { id })
                 .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "client id", observed_data: data.to_string() })
         }
         "ClientDisconnect" => {
             number_from(data)
-                .map(|id| Quake3Events::ClientDisconnect { id })
+                .map(|id| Quake3FullEvents::ClientDisconnect { id })
                 .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "client id", observed_data: data.to_string() })
         },
-        "Item" => Ok(Quake3Events::Item),
-        "say" => Ok(Quake3Events::Say),
+        "Item" => Ok(Quake3FullEvents::Item),
+        "say" => Ok(Quake3FullEvents::Say),
         "Kill" => {
             let (
                     killer_id,
@@ -121,7 +121,7 @@ fn from_parts(event_name: &str, data: &str) -> Result<Quake3Events, EventParsing
                     .ok_or_else(text_description_format_error)?;
                 (killer_name.to_string(), victim_name.to_string(), reason_name.to_string())
             };
-            Ok(Quake3Events::Kill {
+            Ok(Quake3FullEvents::Kill {
                 killer_id,
                 victim_id,
                 reason_id,
@@ -130,7 +130,7 @@ fn from_parts(event_name: &str, data: &str) -> Result<Quake3Events, EventParsing
                 reason_name,
             })
         },
-        "Exit" => Ok(Quake3Events::Exit),
+        "Exit" => Ok(Quake3FullEvents::Exit),
         "red" => {
             let (red_value, blue_key_value) = data.split_once(" ")
                 .ok_or_else(|| EventParsingError::UnknownDataFormat { description: format!("event doesn't appear to be in the form 'red:n blue:n': log line: 'red:{data}'")})?;
@@ -140,7 +140,7 @@ fn from_parts(event_name: &str, data: &str) -> Result<Quake3Events, EventParsing
                 .ok_or_else(|| EventParsingError::UnknownDataFormat { description: format!("data couldn't be split into key and value for the blue score -- '{blue_key_value}'") })?;
             let blue= number_from(blue_value)
                 .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "blue score", observed_data: blue_value.to_string() })?;
-            Ok(Quake3Events::CaptureTheFlagResults { red, blue })
+            Ok(Quake3FullEvents::CaptureTheFlagResults { red, blue })
         },
         "score" => {
             let (frags_value, data) = data.split_once(" ")
@@ -153,9 +153,9 @@ fn from_parts(event_name: &str, data: &str) -> Result<Quake3Events, EventParsing
                 .ok_or_else(|| EventParsingError::UnknownDataFormat { description: format!("couldn't split client id and name out of `client_values` -- '{client_values}'") })?;
             let client_id = number_from(client_id_value)
                 .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "client_id", observed_data: client_id_value.to_string() })?;
-            Ok(Quake3Events::Score {frags, id: client_id, name: client_name.to_string()} )
+            Ok(Quake3FullEvents::Score {frags, id: client_id, name: client_name.to_string()} )
         },
-        "ShutdownGame" => Ok(Quake3Events::ShutdownGame),
+        "ShutdownGame" => Ok(Quake3FullEvents::ShutdownGame),
         _ => Err(EventParsingError::UnknownEventName),
     }
 }
@@ -190,15 +190,15 @@ mod tests {
     /// Tests that the time parser is able to handle hours without the padding zero and even with 3 digits
     #[test]
     fn unconventional_hours() {
-        assert_log_parsing(r#"  0:37 ------------------------------------------------------------"#, Quake3Events::Comment);
-        assert_log_parsing(r#" 80:37 ------------------------------------------------------------"#, Quake3Events::Comment);
-        assert_log_parsing(r#"980:37 ------------------------------------------------------------"#, Quake3Events::Comment);
+        assert_log_parsing(r#"  0:37 ------------------------------------------------------------"#, Quake3FullEvents::Comment);
+        assert_log_parsing(r#" 80:37 ------------------------------------------------------------"#, Quake3FullEvents::Comment);
+        assert_log_parsing(r#"980:37 ------------------------------------------------------------"#, Quake3FullEvents::Comment);
     }
 
     /// Tests that comment messages are correctly identified
     #[test]
     fn comment() {
-        assert_log_parsing(r#"20:37 ------------------------------------------------------------"#, Quake3Events::Comment);
+        assert_log_parsing(r#"20:37 ------------------------------------------------------------"#, Quake3FullEvents::Comment);
     }
 
     /// Tests the [Quake3Events::InitGame] messages for each of the game types: Death match vs Capture the flag.
@@ -206,14 +206,14 @@ mod tests {
     fn init_game() {
         // death match
         assert_log_parsing(r#" 1:47 InitGame: \sv_floodProtect\1\sv_maxPing\0\sv_minPing\0\sv_maxRate\10000\sv_minRate\0\sv_hostname\Code Miner Server\g_gametype\0\sv_privateClients\2\sv_maxclients\16\sv_allowDownload\0\bot_minplayers\0\dmflags\0\fraglimit\20\timelimit\15\g_maxGameClients\0\capturelimit\8\version\ioq3 1.36 linux-x86_64 Apr 12 2009\protocol\68\mapname\q3dm17\gamename\baseq3\g_needpass\0"#,
-                           Quake3Events::InitGame {
+                           Quake3FullEvents::InitGame {
                                frag_limit: Some(20),
                                capture_limit: Some(8),
                                time_limit_min: Some(15),
                            });
         // capture the flag
         assert_log_parsing(r#" 2:33 InitGame: \capturelimit\8\g_maxGameClients\0\timelimit\15\fraglimit\20\dmflags\0\bot_minplayers\0\sv_allowDownload\0\sv_maxclients\16\sv_privateClients\2\g_gametype\4\sv_hostname\Code Miner Server\sv_minRate\0\sv_maxRate\10000\sv_minPing\0\sv_maxPing\0\sv_floodProtect\1\version\ioq3 1.36 linux-x86_64 Apr 12 2009\protocol\68\mapname\Q3TOURNEY6_CTF\gamename\baseq3\g_needpass\0"#,
-                           Quake3Events::InitGame {
+                           Quake3FullEvents::InitGame {
                                frag_limit: Some(20),
                                capture_limit: Some(8),
                                time_limit_min: Some(15),
@@ -222,39 +222,39 @@ mod tests {
     
     #[test]
     fn client_connect() {
-        assert_log_parsing(r#" 2:33 ClientConnect: 2"#, Quake3Events::ClientConnect {id: 2});
+        assert_log_parsing(r#" 2:33 ClientConnect: 2"#, Quake3FullEvents::ClientConnect {id: 2});
     }
 
     #[test]
     fn client_info() {
         assert_log_parsing(r#"2:33 ClientUserinfoChanged: 2 n\Isgalamido\t\1\model\uriel/zael\hmodel\uriel/zael\g_redteam\\g_blueteam\\c1\5\c2\5\hc\100\w\0\l\0\tt\0\tl\0"#,
-                           Quake3Events::ClientUserinfoChanged { id: 2, name: "Isgalamido".to_string() })
+                           Quake3FullEvents::ClientUserinfoChanged { id: 2, name: "Isgalamido".to_string() })
     }
 
     #[test]
     fn client_begin() {
-        assert_log_parsing(r#" 2:33 ClientBegin: 2"#, Quake3Events::ClientBegin {id: 2})
+        assert_log_parsing(r#" 2:33 ClientBegin: 2"#, Quake3FullEvents::ClientBegin {id: 2})
     }
 
     #[test]
     fn client_disconnect() {
-        assert_log_parsing(r#" 2:33 ClientDisconnect: 2"#, Quake3Events::ClientDisconnect {id: 2});
+        assert_log_parsing(r#" 2:33 ClientDisconnect: 2"#, Quake3FullEvents::ClientDisconnect {id: 2});
     }
 
     #[test]
     fn item() {
-        assert_log_parsing(r#" 2:36 Item: 2 ammo_rockets"#, Quake3Events::Item)
+        assert_log_parsing(r#" 2:36 Item: 2 ammo_rockets"#, Quake3FullEvents::Item)
     }
 
     #[test]
     fn say() {
-        assert_log_parsing(r#"981:26 say: Isgalamido: team blue"#, Quake3Events::Say)
+        assert_log_parsing(r#"981:26 say: Isgalamido: team blue"#, Quake3FullEvents::Say)
     }
 
     #[test]
     fn kill_event() {
         assert_log_parsing(r#"20:54 Kill: 1022 2 22: <world> killed Isgalamido by MOD_TRIGGER_HURT"#,
-                           Quake3Events::Kill {
+                           Quake3FullEvents::Kill {
                                killer_id: 1022,
                                victim_id: 2,
                                reason_id: 22,
@@ -266,28 +266,28 @@ mod tests {
 
     #[test]
     fn exit() {
-        assert_log_parsing(r#"10:12 Exit: Capturelimit hit."#, Quake3Events::Exit)
+        assert_log_parsing(r#"10:12 Exit: Capturelimit hit."#, Quake3FullEvents::Exit)
     }
     
     #[test]
     fn capture_the_flag_score() {
-        assert_log_parsing(r#"10:12 red:8  blue:6"#, Quake3Events::CaptureTheFlagResults { red: 8, blue: 6 })
+        assert_log_parsing(r#"10:12 red:8  blue:6"#, Quake3FullEvents::CaptureTheFlagResults { red: 8, blue: 6 })
     }
 
     /// Test scores with either positive or negative frags
     #[test]
     fn score() {
-        assert_log_parsing(r#"10:12 score: 77  ping: 3  client: 2 Isgalamido"#, Quake3Events::Score { frags: 77, id: 2, name: String::from("Isgalamido") });
-        assert_log_parsing(r#"10:12 score: -77  ping: 3  client: 5 Dono da Bola"#, Quake3Events::Score { frags: -77, id: 5, name: String::from("Dono da Bola") })
+        assert_log_parsing(r#"10:12 score: 77  ping: 3  client: 2 Isgalamido"#, Quake3FullEvents::Score { frags: 77, id: 2, name: String::from("Isgalamido") });
+        assert_log_parsing(r#"10:12 score: -77  ping: 3  client: 5 Dono da Bola"#, Quake3FullEvents::Score { frags: -77, id: 5, name: String::from("Dono da Bola") })
     }
 
     #[test]
     fn shutdown() {
-        assert_log_parsing(r#"10:28 ShutdownGame:"#, Quake3Events::ShutdownGame)
+        assert_log_parsing(r#"10:28 ShutdownGame:"#, Quake3FullEvents::ShutdownGame)
     }
 
 
-    fn assert_log_parsing(log_line: &str, expected_log_event: Quake3Events) {
+    fn assert_log_parsing(log_line: &str, expected_log_event: Quake3FullEvents) {
         let deserialization_result = deserialize_log_line(log_line);
         assert!(deserialization_result.is_ok(), "Log line '{log_line}' couldn't be deserialized: LogParsingError::{:?}", deserialization_result.unwrap_err());
         assert_eq!(deserialization_result.unwrap(), expected_log_event, "Log line '{log_line}' wasn't correctly deserialized");

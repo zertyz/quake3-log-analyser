@@ -9,7 +9,7 @@ edition = "2021"
 
 model = { path = "../model" }
 dal-api = { path = "../dal-api" }
-quake3-server-log = { path = "../quake3-server-log" }
+quake3-server-log = { path = "../quake3-server-events" }
 
 # gives us `Stream`
 futures = "0.3"

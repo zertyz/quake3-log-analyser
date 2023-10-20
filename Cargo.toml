@@ -21,7 +21,7 @@ members = [
     "common",
 
     # general libraries
-    "quake3-server-log",
+    "quake3-server-events",
 ]
 
 # linking optimizations for extra performance in release mode

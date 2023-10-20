@@ -1,6 +1,8 @@
 //! Resting place for [Config] & friends
 
 
+use std::collections::HashSet;
+
 /// Configuration to dictate the tunable behaviors of the Business Logic Layer
 pub struct Config {
 
@@ -10,22 +12,26 @@ pub struct Config {
     /// With this setting, you have the option to visualize any issues.
     pub log_issues: bool,
 
-    /// If true, ignore any event data feed errors -- such as IO errors, parsing errors.\
-    /// If false, causes the error to propagate and the processor to stop.
+    /// If false, ignore any event data feed errors -- such as IO errors, parsing errors.\
+    /// If true, causes the error to propagate and the processor to stop.
     pub stop_on_feed_errors: bool,
 
-    /// If true, ignore any event model errors -- such as `Kill`s out of a started game.\
-    /// If false, causes the error to propagate and the processor to stop.
+    /// If false, ignore any event model errors -- such as `Kill`s out of a started game.\
+    /// If true, causes the error to propagate and the processor to stop.
     pub stop_on_event_model_violations: bool,
+
+    /// What operations should be applied -- each with their own CPU & RAM resources needs
+    pub processor_pipeline: HashSet<EventAnalyserOperations>,
 
 }
 
 /// The operations the Business Logic Layer may perform on the Quake3 Events feed
 /// to aggregate into a summary to present to the user
-pub enum LogAnalyserOperations {
+#[derive(Debug, Eq, Hash, PartialEq)]
+pub enum EventAnalyserOperations {
     Kills,
     PlayerIdsAndNickNamesResolutions,
-    GameReportedScore,
+    GameReportedScores,
 }
 
 impl Default for Config {
@@ -34,6 +40,9 @@ impl Default for Config {
             log_issues: false,
             stop_on_feed_errors: false,
             stop_on_event_model_violations: false,
+            processor_pipeline: HashSet::from([
+                EventAnalyserOperations::Kills
+            ])
         }
     }
 }

@@ -1,8 +1,10 @@
-//! Resting place for [Quake3Events]
+//! Resting place for [Quake3FullEvents]
 
-/// Mappings for Quake 3 server events
+/// Mappings for Quake 3 server events.\
+/// IMPLEMENTATION NOTE: The name says "full", despite this not being true, but the term is just to emphasize
+/// that this library represents an external piece of code without any relation to our Business Logic requisites.
 #[derive(Debug, PartialEq)]
-pub enum Quake3Events {
+pub enum Quake3FullEvents {
     /// A new game match has started
     InitGame {
         /// Applicable to the "Deathmatch" mode, specifies the maximum score (frag) a player may have -- after which, the match is declared over
