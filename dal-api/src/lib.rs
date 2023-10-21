@@ -16,5 +16,5 @@ pub trait Quake3ServerEvents {
 
 
     /// Consumes this object, returning a `Stream` which yields Quake 3 server events
-    fn events_stream(self) -> Result<Pin<Box<dyn Stream<Item=Quake3Events>>>>;
+    fn events_stream(self) -> Result<Pin<Box<dyn Stream<Item=Quake3Events<'static>>>>>;
 }

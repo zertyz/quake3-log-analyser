@@ -1,2 +1,2 @@
 pub mod deserializer;
-pub mod model;
+pub mod types;

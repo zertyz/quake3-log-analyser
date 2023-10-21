@@ -10,14 +10,15 @@
 //!
 //! See also the `benches/quake3_server_event_parsing.rs` for the study of trade-ofs between Regex & `str::split*()`
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::str::FromStr;
-use crate::model::Quake3FullEvents;
+use crate::types::Quake3FullEvents;
 
 
 /// Transforms raw Quake 3 Log lines into the appropriate [model::quake3_logs::LogEvent] variants.\
 /// On error, returns a String describing the problem
-pub fn deserialize_log_line(log_line: &str) -> Result<Quake3FullEvents, LogParsingError> {
+pub fn deserialize_log_line<'a>(log_line: &str) -> Result<Quake3FullEvents<'a>, LogParsingError> {
     let log_line = log_line.trim_start_matches(" ");
     if log_line.len() == 0 {
         return Err(LogParsingError::EmptyLine)
@@ -55,7 +56,7 @@ pub enum EventParsingError {
     UnknownDataFormat { description: String },
 }
 
-fn from_parts(event_name: &str, data: &str) -> Result<Quake3FullEvents, EventParsingError> {
+fn from_parts<'a>(event_name: &str, data: &str) -> Result<Quake3FullEvents<'a>, EventParsingError> {
     match event_name {
         "InitGame" => {
             let map = map_from_kv_data(data);
@@ -77,7 +78,7 @@ fn from_parts(event_name: &str, data: &str) -> Result<Quake3FullEvents, EventPar
                 .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "client id", observed_data: numeric.to_string() })?;
             let map = map_from_kv_data(textual);
             map.get("n")
-                .map(|name| Quake3FullEvents::ClientUserinfoChanged { id, name: name.to_string() })
+                .map(|name| Quake3FullEvents::ClientUserinfoChanged { id, name: Cow::Owned(name.to_owned()) })
                 .ok_or_else(|| EventParsingError::AbsentKey { key_name: "n" })
         },
         "ClientBegin" => {
@@ -125,9 +126,9 @@ fn from_parts(event_name: &str, data: &str) -> Result<Quake3FullEvents, EventPar
                 killer_id,
                 victim_id,
                 reason_id,
-                killer_name,
-                victim_name,
-                reason_name,
+                killer_name: Cow::Owned(killer_name),
+                victim_name: Cow::Owned(victim_name),
+                reason_name: Cow::Owned(reason_name),
             })
         },
         "Exit" => Ok(Quake3FullEvents::Exit),
@@ -153,7 +154,7 @@ fn from_parts(event_name: &str, data: &str) -> Result<Quake3FullEvents, EventPar
                 .ok_or_else(|| EventParsingError::UnknownDataFormat { description: format!("couldn't split client id and name out of `client_values` -- '{client_values}'") })?;
             let client_id = number_from(client_id_value)
                 .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "client_id", observed_data: client_id_value.to_string() })?;
-            Ok(Quake3FullEvents::Score {frags, id: client_id, name: client_name.to_string()} )
+            Ok(Quake3FullEvents::Score {frags, id: client_id, name: Cow::Owned(client_name.to_owned())} )
         },
         "ShutdownGame" => Ok(Quake3FullEvents::ShutdownGame),
         _ => Err(EventParsingError::UnknownEventName),
@@ -228,7 +229,7 @@ mod tests {
     #[test]
     fn client_info() {
         assert_log_parsing(r#"2:33 ClientUserinfoChanged: 2 n\Isgalamido\t\1\model\uriel/zael\hmodel\uriel/zael\g_redteam\\g_blueteam\\c1\5\c2\5\hc\100\w\0\l\0\tt\0\tl\0"#,
-                           Quake3FullEvents::ClientUserinfoChanged { id: 2, name: "Isgalamido".to_string() })
+                           Quake3FullEvents::ClientUserinfoChanged { id: 2, name: "Isgalamido".into() })
     }
 
     #[test]
@@ -258,9 +259,9 @@ mod tests {
                                killer_id: 1022,
                                victim_id: 2,
                                reason_id: 22,
-                               killer_name: "<world>".to_string(),
-                               victim_name: "Isgalamido".to_string(),
-                               reason_name: "MOD_TRIGGER_HURT".to_string(),
+                               killer_name: "<world>".into(),
+                               victim_name: "Isgalamido".into(),
+                               reason_name: "MOD_TRIGGER_HURT".into(),
                            });
     }
 
@@ -277,8 +278,8 @@ mod tests {
     /// Test scores with either positive or negative frags
     #[test]
     fn score() {
-        assert_log_parsing(r#"10:12 score: 77  ping: 3  client: 2 Isgalamido"#, Quake3FullEvents::Score { frags: 77, id: 2, name: String::from("Isgalamido") });
-        assert_log_parsing(r#"10:12 score: -77  ping: 3  client: 5 Dono da Bola"#, Quake3FullEvents::Score { frags: -77, id: 5, name: String::from("Dono da Bola") })
+        assert_log_parsing(r#"10:12 score: 77  ping: 3  client: 2 Isgalamido"#, Quake3FullEvents::Score { frags: 77, id: 2, name: "Isgalamido".into() });
+        assert_log_parsing(r#"10:12 score: -77  ping: 3  client: 5 Dono da Bola"#, Quake3FullEvents::Score { frags: -77, id: 5, name: "Dono da Bola".into() })
     }
 
     #[test]

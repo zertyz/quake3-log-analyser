@@ -6,13 +6,13 @@ use model::{
     types::Result,
     quake3_events::Quake3Events,
 };
-use quake3_server_log::model::Quake3FullEvents;
+use quake3_server_log::types::Quake3FullEvents;
 use futures::{Stream, StreamExt};
 
 
 /// Receives a `Stream` of the Quake3 events produced by the `quake3-server-events` library and
 /// simplifies & translates them into another `Stream` of our [model::quake3_events::Quake3Events]
-pub fn translate_quake3_events(lib_events: impl Stream<Item=Result<Quake3FullEvents>>) -> impl Stream<Item=Quake3Events> {
+pub fn translate_quake3_events<'a>(lib_events: impl Stream<Item=Result<Quake3FullEvents<'a>>>) -> impl Stream<Item=Quake3Events<'a>> {
     let mut event_id = 0;
     lib_events
         .map(move |event_result| {

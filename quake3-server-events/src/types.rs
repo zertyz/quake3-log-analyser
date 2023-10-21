@@ -1,10 +1,12 @@
 //! Resting place for [Quake3FullEvents]
 
+use std::borrow::Cow;
+
 /// Mappings for Quake 3 server events.\
 /// IMPLEMENTATION NOTE: The name says "full", despite this not being true, but the term is just to emphasize
 /// that this library represents an external piece of code without any relation to our Business Logic requisites.
 #[derive(Debug, PartialEq)]
-pub enum Quake3FullEvents {
+pub enum Quake3FullEvents<'a> {
     /// A new game match has started
     InitGame {
         /// Applicable to the "Deathmatch" mode, specifies the maximum score (frag) a player may have -- after which, the match is declared over
@@ -21,7 +23,7 @@ pub enum Quake3FullEvents {
     /// An update on the player's info is available
     ClientUserinfoChanged {
         id: u32,
-        name: String,
+        name: Cow<'a, str>,
 
     },
     ClientBegin  {
@@ -36,9 +38,9 @@ pub enum Quake3FullEvents {
         killer_id: u32,
         victim_id: u32,
         reason_id: u32,
-        killer_name: String,
-        victim_name: String,
-        reason_name: String,
+        killer_name: Cow<'a, str>,
+        victim_name: Cow<'a, str>,
+        reason_name: Cow<'a, str>,
     },
     Exit,
     CaptureTheFlagResults {
@@ -48,7 +50,7 @@ pub enum Quake3FullEvents {
     Score {
         frags: i32,
         id: u32,
-        name: String,
+        name: Cow<'a, str>,
     },
     ShutdownGame,
     Comment,

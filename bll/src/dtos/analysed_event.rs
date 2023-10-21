@@ -1,9 +1,8 @@
 //! Resting place for [AnalysedEvent] & friends
 
+use std::borrow::Cow;
 use model::{
-    types::Result,
     quake3_events::Quake3Events,
-    report::GameMatchSummary,
 };
 
 /// Represents an event that might either be:
@@ -12,12 +11,12 @@ use model::{
 /// Through this composite events, logic processing pipelines may be applied independently,
 /// with each one working on a set of Game Events.
 #[derive(Debug)]
-pub enum CompositeEvent {
-    GameEvent(Quake3Events),
-    LogicEvent(LogicEvent)    // add line numbers
+pub enum CompositeEvent<'a> {
+    GameEvent(Quake3Events<'a>),
+    LogicEvent(LogicEvent<'a>)
 }
 
-impl CompositeEvent {
+impl CompositeEvent<'_> {
 
     pub fn is_err(&self) -> bool {
         match self {
@@ -34,42 +33,35 @@ impl CompositeEvent {
     }
 }
 
-#[derive(Debug)]
-pub struct AnalysedEvent {
-    pub event_id:    usize,
-    pub game_event:  Result<Quake3Events>, // should be Quake3Event
-    pub logic_event: Option<LogicEvent>,
-}
-
 /// The events the main logic algorithms generates for the composable business logics to process
 #[derive(Debug)]
-pub enum LogicEvent {
+pub enum LogicEvent<'a> {
     /// A game has started
     NewGame { quake3_event_id: u32 },
     /// A new player joined the game
-    AddPlayer { quake3_event_id: u32, client_id: u32, name: String },
+    AddPlayer { quake3_event_id: u32, client_id: u32, name: Cow<'a, str> },
     /// An existing player changed its nick name
-    RenamePlayer { quake3_event_id: u32, client_id: u32, old_name: String, new_name: String },
+    RenamePlayer { quake3_event_id: u32, client_id: u32, old_name: Cow<'a, str>, new_name: Cow<'a, str> },
     /// An existing player quit the game
-    DeletePlayer { quake3_event_id: u32, client_id: u32, name: String },
+    DeletePlayer { quake3_event_id: u32, client_id: u32, name: Cow<'a, str> },
     /// Reports the cause of the last death
-    MeanOfDeath { quake3_event_id: u32, mean_of_death: String },
+    MeanOfDeath { quake3_event_id: u32, mean_of_death: Cow<'a, str> },
     /// A player killed someone
-    IncFrags { quake3_event_id: u32, client_id: u32, name: String },
+    IncFrags { quake3_event_id: u32, client_id: u32, name: Cow<'a, str> },
     /// The player committed suicide (was killed by '<world>')
-    DecFrags { quake3_event_id: u32, client_id: u32, name: String },
+    DecFrags { quake3_event_id: u32, client_id: u32, name: Cow<'a, str> },
     /// The game reported its own account of a player's scored frags
-    ReportedScore { quake3_event_id: u32, frags: i32, client_id: u32, name: String },
+    ReportedScore { quake3_event_id: u32, frags: i32, client_id: u32, name: Cow<'a, str> },
     /// A game has ended in a graceful manner: the match progressed until one of the limits were reached
     GameEndedGracefully { quake3_event_id: u32 },
     /// A game has ended without reaching any of the limits -- most likely due to an operator command
     GameEndedManually { quake3_event_id: u32 },
 
     /// Represents an error on the event processing
-    EventModelViolation { quake3_event_id: u32, violation: EventModelViolations },
+    EventModelViolation { quake3_event_id: u32, violation: EventModelViolations<'a> },
 }
 
-impl LogicEvent {
+impl LogicEvent<'_> {
 
     pub fn is_err(&self) -> bool {
         matches!(self, LogicEvent::EventModelViolation {..})
@@ -93,7 +85,7 @@ impl LogicEvent {
 }
 
 #[derive(Debug)]
-pub enum EventModelViolations {
+pub enum EventModelViolations<'a> {
     /// Occurs when two `InitGame` events were received before a `ShutdownGame`
     DoubleInit,
     /// Occurs when two `ClientConnect` events were received (for the same client_id) before a `ClientDisconnect`
@@ -103,11 +95,11 @@ pub enum EventModelViolations {
     /// Occurs when a `ClientUserinfoChanged` or `ClientDisconnect` event happens before a `ClientConnect`, for the given client_id
     ClientNotConnected {
         id: u32,
-        name: String,
+        name: Cow<'a, str>,
     },
     DiscrepantPlayerName {
         id: u32,
-        local_name: String,
-        game_name: String,
+        local_name: Cow<'a, str>,
+        game_name: Cow<'a, str>,
     }
 }

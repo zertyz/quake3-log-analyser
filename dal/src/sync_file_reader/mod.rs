@@ -4,7 +4,7 @@ use model::{
 };
 use dal_api::Quake3ServerEvents;
 use quake3_server_log::{
-    model::Quake3FullEvents,
+    types::Quake3FullEvents,
     deserializer::{deserialize_log_line, LogParsingError},
 };
 use std::fs::File;
@@ -35,7 +35,7 @@ impl Quake3LogFileSyncReader {
 
 impl Quake3ServerEvents for Quake3LogFileSyncReader {
 
-    fn events_stream(self) -> Result<Pin<Box<dyn Stream<Item=Quake3Events>>>> {
+    fn events_stream(self) -> Result<Pin<Box<dyn Stream<Item=Quake3Events<'static>>>>> {
         let file = File::open(&self.log_file_path)
             .map_err(|err| format!("Couldn't open Quake3 Server log file '{}' for reading: {err}", self.log_file_path))?;
         let reader = BufReader::with_capacity(BUFFER_SIZE, file);

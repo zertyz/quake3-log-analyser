@@ -2,6 +2,7 @@
 //!
 //! See [summarize_games()]
 
+use std::borrow::Cow;
 use model::{
     types::Result,
     quake3_events::Quake3Events,
@@ -16,7 +17,7 @@ use dal_api::Quake3ServerEvents;
 use log::warn;
 use model::report::GamesSummary;
 use crate::{Config, EventAnalyserOperations};
-use crate::dtos::{AnalysedEvent, LogicEvent, CompositeEvent, EventModelViolations};
+use crate::dtos::{LogicEvent, CompositeEvent, EventModelViolations};
 
 
 /// Builds summaries of Quake3 game matches.\
@@ -50,7 +51,7 @@ pub fn summarize_games(config: Arc<Config>, log_dao: impl Quake3ServerEvents + '
 ///   3. many pipeline processing functions, such as [means_of_death()], [kills()], [player_ids_and_nicknames_resolutions()] and [game_reported_scores()] -- then
 ///   4.  [summarize()], then
 ///   5. `Stream` of [GameMatchSummary]
-fn compose(config: Arc<Config>, log_dao: impl Quake3ServerEvents) -> Result<impl Stream<Item=CompositeEvent>> {
+fn compose<'a>(config: Arc<Config>, log_dao: impl Quake3ServerEvents) -> Result<impl Stream<Item=CompositeEvent<'a>>> {
 
     let stream = log_dao.events_stream()
         .map_err(|err| format!("compose(): failed at fetching the Quake 3 Server events `Stream`: {err}"))?;
@@ -118,7 +119,7 @@ fn compose(config: Arc<Config>, log_dao: impl Quake3ServerEvents) -> Result<impl
 /// Logic for extracting the death causes statistics from the [Quake3Events::Kill] events.\
 /// Must be used before [kills()], because (unlike the mentioned processor), this here does not consume
 /// the events.
-fn means_of_death(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent>) -> impl Stream<Item=CompositeEvent> {
+fn means_of_death<'a>(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent<'a>>) -> impl Stream<Item=CompositeEvent<'a>> {
 
     stream
         .map(|composite_event| {
@@ -151,7 +152,7 @@ fn means_of_death(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent>)
 ///   1) killers get a frag up;
 ///   2) if killed by '<world>', the victim gets a frag down.
 /// NOTE: should be applied before [player_ids_and_nicknames_resolutions()] and after [means_of_death()]
-fn kills(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent>) -> impl Stream<Item=CompositeEvent> {
+fn kills<'a>(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent<'a>>) -> impl Stream<Item=CompositeEvent<'a>> {
 
     stream
         .map(|composite_event| {
@@ -181,8 +182,9 @@ fn kills(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent>) -> impl 
 
 /// Logic for resolving client ids & client names & validating the ones resolved by the game.\
 /// NOTE: should be applied after [kills()]
-fn player_ids_and_nicknames_resolutions(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent>) -> impl Stream<Item=CompositeEvent> {
+fn player_ids_and_nicknames_resolutions<'a>(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent<'a>>) -> impl Stream<Item=CompositeEvent<'a>> {
 
+    let default_local_name = String::from("NONE");
     let mut player_ids_and_nicks = HashMap::<u32, Option<String>>::new();
 
     stream
@@ -202,8 +204,8 @@ fn player_ids_and_nicknames_resolutions(config: Arc<Config>, stream: impl Stream
                                         quake3_event_id,
                                         violation: EventModelViolations::DiscrepantPlayerName {
                                             id,
-                                            local_name: stored_name.as_ref().unwrap_or(&"NONE".to_owned()).to_owned(),
-                                            game_name: name,
+                                            local_name: Cow::Owned(stored_name.as_ref().unwrap_or(&default_local_name).to_owned()),
+                                            game_name: Cow::Owned(name),
                                         }
                                     }
                                 ))
@@ -216,8 +218,8 @@ fn player_ids_and_nicknames_resolutions(config: Arc<Config>, stream: impl Stream
                         player_ids_and_nicks.clear();
                         Some(composite_event)
                     },
-                    LogicEvent::IncFrags { quake3_event_id, client_id: id, name } if config.stop_on_event_model_violations => react_to_nicknames_discrepancy(*quake3_event_id, *id, name.to_owned(), composite_event),
-                    LogicEvent::DecFrags { quake3_event_id, client_id: id, name } if config.stop_on_event_model_violations => react_to_nicknames_discrepancy(*quake3_event_id, *id, name.to_owned(), composite_event),
+                    LogicEvent::IncFrags { quake3_event_id, client_id: id, name } if config.stop_on_event_model_violations => react_to_nicknames_discrepancy(*quake3_event_id, *id, name.to_string(), composite_event),
+                    LogicEvent::DecFrags { quake3_event_id, client_id: id, name } if config.stop_on_event_model_violations => react_to_nicknames_discrepancy(*quake3_event_id, *id, name.to_string(), composite_event),
                     _ => Some(composite_event)
                 }
             }
@@ -240,15 +242,15 @@ fn player_ids_and_nicknames_resolutions(config: Arc<Config>, stream: impl Stream
                     player_ids_and_nicks.get_mut(&id)
                         //.map_or_else(|| Some(Err(Box::from(format!("Event #{}: `ClientUserinfoChanged` event received before a `ClientConnect`", event_id+1)))),
                         .map_or_else(|| Some(CompositeEvent::LogicEvent(LogicEvent::EventModelViolation { quake3_event_id: *event_id, violation: EventModelViolations::ClientNotConnected {id: *id, name: new_name.to_owned()}})),
-                                     |old_name| old_name.replace(new_name.clone())
-                                             .and_then(|old_name| Some(CompositeEvent::LogicEvent(LogicEvent::RenamePlayer { quake3_event_id: *event_id, client_id: *id, old_name, new_name: new_name.clone() })) )
+                                     |old_name| old_name.replace(new_name.to_string())
+                                             .and_then(|old_name| Some(CompositeEvent::LogicEvent(LogicEvent::RenamePlayer { quake3_event_id: *event_id, client_id: *id, old_name: Cow::Owned(old_name), new_name: new_name.to_owned() })) )
                                              .or_else(|| Some(CompositeEvent::LogicEvent(LogicEvent::AddPlayer { quake3_event_id: *event_id, client_id: 0, name: new_name.to_owned() })) ) )
                 },
 
                 Quake3Events::ClientDisconnect { event_id, client_id: id } => {
                     player_ids_and_nicks.remove(id)
-                        .and_then(|name| Some(CompositeEvent::LogicEvent(LogicEvent::DeletePlayer { quake3_event_id: *event_id, client_id: *id, name: name.unwrap_or("NONE".to_owned())})))
-                        .or_else(|| Some(CompositeEvent::LogicEvent(LogicEvent::EventModelViolation { quake3_event_id: *event_id, violation: EventModelViolations::ClientNotConnected {id: *id, name: "<unknown>".to_owned()}})))
+                        .and_then(|name| Some(CompositeEvent::LogicEvent(LogicEvent::DeletePlayer { quake3_event_id: *event_id, client_id: *id, name: Cow::Owned(name.unwrap_or(default_local_name.to_owned()))})))
+                        .or_else(|| Some(CompositeEvent::LogicEvent(LogicEvent::EventModelViolation { quake3_event_id: *event_id, violation: EventModelViolations::ClientNotConnected {id: *id, name: Cow::Borrowed("<unknown>")}})))
                 }
 
                 _ => Some(composite_event)
@@ -259,7 +261,7 @@ fn player_ids_and_nicknames_resolutions(config: Arc<Config>, stream: impl Stream
 }
 
 /// Logic for resolving player scores reported by the game
-fn game_reported_scores(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent>) -> impl Stream<Item=CompositeEvent> {
+fn game_reported_scores<'a>(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent<'a>>) -> impl Stream<Item=CompositeEvent<'a>> {
 
     stream
         .map(|composite_event| {
@@ -284,7 +286,7 @@ fn game_reported_scores(config: Arc<Config>, stream: impl Stream<Item=CompositeE
 /// Ties together the Logic Events in the operated `stream` into a [GameMatchSummary] ready to be presented to the user,
 /// ignoring any unprocessed Game Events that might be left (due to a modest chaining of operations).\
 /// See [compose()] for a full description of the process.
-fn summarize(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent>) -> impl Stream<Item=Result<GameMatchSummary>> {
+fn summarize<'a>(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent<'a>> + 'a) -> impl Stream<Item=Result<GameMatchSummary>> + 'a {
 
     let mut current_game_summary = None;
 
@@ -310,31 +312,31 @@ fn summarize(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent>) -> i
 
                     LogicEvent::AddPlayer { quake3_event_id, client_id: id, name } => {
                         let mut current_game_summary = current_game_summary.as_mut()?;
-                        (!current_game_summary.players.insert(name.clone()))
+                        (!current_game_summary.players.insert(name.to_string()))
                             .then(|| Err(Box::from(format!("Event #{quake3_event_id}: Player id: {id}, name: {name:?} is already registered"))))
                     },
 
                     LogicEvent::RenamePlayer { quake3_event_id, client_id: id, old_name, new_name } => {
                         let mut current_game_summary = current_game_summary.as_mut()?;
-                        current_game_summary.players.remove(&old_name);
-                        current_game_summary.players.insert(new_name.clone());
-                        current_game_summary.kills.remove(&old_name)
-                            .and_then(|frags| current_game_summary.kills.insert(new_name.clone(), frags));
+                        current_game_summary.players.remove(old_name.as_ref());
+                        current_game_summary.players.insert(new_name.to_string());
+                        current_game_summary.kills.remove(old_name.as_ref())
+                            .and_then(|frags| current_game_summary.kills.insert(new_name.to_string(), frags));
                         None
                     },
 
                     LogicEvent::DeletePlayer { quake3_event_id, client_id: id, name } => {
                         let mut current_game_summary = current_game_summary.as_mut()?;
-                        current_game_summary.kills.remove(&name)
+                        current_game_summary.kills.remove(name.as_ref())
                             .map(|frags| current_game_summary.disconnected_players.get_or_insert_with(|| Vec::new())
-                                .push((id, name.clone(), frags)));
-                        (!current_game_summary.players.remove(&name))
+                                .push((id, name.to_string(), frags)));
+                        (!current_game_summary.players.remove(name.as_ref()))
                             .then(|| Err(Box::from(format!("Event #{quake3_event_id}: Player id: {id}, name: {name:?} was not registered"))))
                     },
 
                     LogicEvent::MeanOfDeath { quake3_event_id, mean_of_death } => {
                         current_game_summary.as_mut()?.means_of_death.get_or_insert_with(|| BTreeMap::new())
-                            .entry(mean_of_death)
+                            .entry(mean_of_death.to_string())
                             .and_modify(|frags| *frags += 1)
                             .or_insert(1);
                         None
@@ -343,8 +345,8 @@ fn summarize(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent>) -> i
                     LogicEvent::IncFrags { quake3_event_id, client_id: id, name } => {
                         let mut current_game_summary = current_game_summary.as_mut()?;
                         current_game_summary.total_kills += 1;
-                        current_game_summary.players.insert(name.clone());
-                        current_game_summary.kills.entry(name)
+                        current_game_summary.players.insert(name.to_string());
+                        current_game_summary.kills.entry(name.to_string())
                             .and_modify(|frags| *frags += 1)
                             .or_insert(1);
                         None
@@ -353,8 +355,8 @@ fn summarize(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent>) -> i
                     LogicEvent::DecFrags { quake3_event_id, client_id: id, name } => {
                         let mut current_game_summary = current_game_summary.as_mut()?;
                         current_game_summary.total_kills += 1;
-                        current_game_summary.players.insert(name.clone());
-                        current_game_summary.kills.entry(name)
+                        current_game_summary.players.insert(name.to_string());
+                        current_game_summary.kills.entry(name.to_string())
                             .and_modify(|frags| *frags -= 1)
                             .or_insert(-1);
                         None
@@ -363,7 +365,7 @@ fn summarize(config: Arc<Config>, stream: impl Stream<Item=CompositeEvent>) -> i
                     LogicEvent::ReportedScore { quake3_event_id, frags, client_id, name } => {
                         let mut current_game_summary = current_game_summary.as_mut()?;
                         current_game_summary.game_reported_scores.get_or_insert_with(|| BTreeMap::new())
-                            .insert(name, frags);
+                            .insert(name.to_string(), frags);
                         None
                     },
 
@@ -406,12 +408,12 @@ mod tests {
     fn composition() {
         let events = vec![
             Quake3Events::InitGame     { event_id: 1 },
-            Quake3Events::Kill         { event_id: 2, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Player1".to_owned(), victim_name: "Player2".to_owned(), reason_name: "NONE".to_owned() },
-            Quake3Events::Kill         { event_id: 3, killer_id: 2, victim_id: 1, reason_id: 2, killer_name: "Player2".to_owned(), victim_name: "Player1".to_owned(), reason_name: "NONE".to_owned() },
+            Quake3Events::Kill         { event_id: 2, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Player1".into(), victim_name: "Player2".into(), reason_name: "NONE".into() },
+            Quake3Events::Kill         { event_id: 3, killer_id: 2, victim_id: 1, reason_id: 2, killer_name: "Player2".into(), victim_name: "Player1".into(), reason_name: "NONE".into() },
             Quake3Events::ShutdownGame { event_id: 4 },
             Quake3Events::InitGame     { event_id: 1 },
-            Quake3Events::Kill         { event_id: 2, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Player1".to_owned(), victim_name: "Player2".to_owned(), reason_name: "NONE".to_owned() },
-            Quake3Events::Kill         { event_id: 3, killer_id: 2, victim_id: 1, reason_id: 2, killer_name: "Player2".to_owned(), victim_name: "Player1".to_owned(), reason_name: "NONE".to_owned() },
+            Quake3Events::Kill         { event_id: 2, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Player1".into(), victim_name: "Player2".into(), reason_name: "NONE".into() },
+            Quake3Events::Kill         { event_id: 3, killer_id: 2, victim_id: 1, reason_id: 2, killer_name: "Player2".into(), victim_name: "Player1".into(), reason_name: "NONE".into() },
             Quake3Events::ShutdownGame { event_id: 4 },
         ];
         let events_count = events.len();
@@ -431,8 +433,8 @@ mod tests {
     fn simple_working_case() {
         let events = vec![
             Quake3Events::InitGame     { event_id: 1 },
-            Quake3Events::Kill         { event_id: 2, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Player1".to_owned(), victim_name: "Player2".to_owned(), reason_name: "NONE".to_owned() },
-            Quake3Events::Kill         { event_id: 3, killer_id: 2, victim_id: 1, reason_id: 2, killer_name: "Player2".to_owned(), victim_name: "Player1".to_owned(), reason_name: "NONE".to_owned() },
+            Quake3Events::Kill         { event_id: 2, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Player1".into(), victim_name: "Player2".into(), reason_name: "NONE".into() },
+            Quake3Events::Kill         { event_id: 3, killer_id: 2, victim_id: 1, reason_id: 2, killer_name: "Player2".into(), victim_name: "Player1".into(), reason_name: "NONE".into() },
             Quake3Events::ShutdownGame { event_id: 4 },
         ];
         let expected_summaries = vec![
@@ -459,8 +461,8 @@ mod tests {
     fn means_of_death() {
         let events = vec![
             Quake3Events::InitGame     { event_id: 1 },
-            Quake3Events::Kill         { event_id: 2, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Player1".to_owned(), victim_name: "Player2".to_owned(), reason_name: "Reason 1".to_owned() },
-            Quake3Events::Kill         { event_id: 3, killer_id: 2, victim_id: 1, reason_id: 2, killer_name: "Player2".to_owned(), victim_name: "Player1".to_owned(), reason_name: "Reason 2".to_owned() },
+            Quake3Events::Kill         { event_id: 2, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Player1".into(), victim_name: "Player2".into(), reason_name: "Reason 1".into() },
+            Quake3Events::Kill         { event_id: 3, killer_id: 2, victim_id: 1, reason_id: 2, killer_name: "Player2".into(), victim_name: "Player1".into(), reason_name: "Reason 2".into() },
             Quake3Events::ShutdownGame { event_id: 4 },
         ];
         let expected_summaries = vec![
@@ -495,9 +497,9 @@ mod tests {
 
         let events = vec![
             Quake3Events::InitGame     { event_id: 1 } ,
-            Quake3Events::Kill         { event_id: 2, killer_id: 1022, victim_id: 2, reason_id: 1, killer_name: "<world>".to_owned(), victim_name: "Player2".to_owned(), reason_name: "NONE".to_owned() },
-            Quake3Events::Kill         { event_id: 3, killer_id: 2022, victim_id: 1, reason_id: 2, killer_name: "<world>".to_owned(), victim_name: "Player1".to_owned(), reason_name: "NONE".to_owned() },
-            Quake3Events::Kill         { event_id: 4, killer_id: 2022, victim_id: 1, reason_id: 2, killer_name: "<world>".to_owned(), victim_name: "Player1".to_owned(), reason_name: "NONE".to_owned() },
+            Quake3Events::Kill         { event_id: 2, killer_id: 1022, victim_id: 2, reason_id: 1, killer_name: "<world>".into(), victim_name: "Player2".into(), reason_name: "NONE".into() },
+            Quake3Events::Kill         { event_id: 3, killer_id: 2022, victim_id: 1, reason_id: 2, killer_name: "<world>".into(), victim_name: "Player1".into(), reason_name: "NONE".into() },
+            Quake3Events::Kill         { event_id: 4, killer_id: 2022, victim_id: 1, reason_id: 2, killer_name: "<world>".into(), victim_name: "Player1".into(), reason_name: "NONE".into() },
             Quake3Events::ShutdownGame { event_id: 5 },
         ];
         let expected_summaries = vec![
@@ -523,12 +525,12 @@ mod tests {
 
         let events = vec![
             Quake3Events::InitGame     { event_id: 1 },
-            Quake3Events::Kill         { event_id: 2, killer_id: 1022, victim_id: 2, reason_id: 1, killer_name: "<world>".to_owned(), victim_name: "Player2".to_owned(), reason_name: "NONE".to_owned() },
-            Quake3Events::Kill         { event_id: 3, killer_id: 2022, victim_id: 1, reason_id: 2, killer_name: "<world>".to_owned(), victim_name: "Player1".to_owned(), reason_name: "NONE".to_owned() },
-            Quake3Events::Kill         { event_id: 4, killer_id: 2022, victim_id: 1, reason_id: 2, killer_name: "<world>".to_owned(), victim_name: "Player1".to_owned(), reason_name: "NONE".to_owned() },
-            Quake3Events::Kill         { event_id: 5, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Player1".to_owned(), victim_name: "Player2".to_owned(), reason_name: "NONE".to_owned() },
-            Quake3Events::Kill         { event_id: 6, killer_id: 2, victim_id: 1, reason_id: 2, killer_name: "Player2".to_owned(), victim_name: "Player1".to_owned(), reason_name: "NONE".to_owned() },
-            Quake3Events::Kill         { event_id: 7, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Player1".to_owned(), victim_name: "Player2".to_owned(), reason_name: "NONE".to_owned() },
+            Quake3Events::Kill         { event_id: 2, killer_id: 1022, victim_id: 2, reason_id: 1, killer_name: "<world>".into(), victim_name: "Player2".into(), reason_name: "NONE".into() },
+            Quake3Events::Kill         { event_id: 3, killer_id: 2022, victim_id: 1, reason_id: 2, killer_name: "<world>".into(), victim_name: "Player1".into(), reason_name: "NONE".into() },
+            Quake3Events::Kill         { event_id: 4, killer_id: 2022, victim_id: 1, reason_id: 2, killer_name: "<world>".into(), victim_name: "Player1".into(), reason_name: "NONE".into() },
+            Quake3Events::Kill         { event_id: 5, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Player1".into(), victim_name: "Player2".into(), reason_name: "NONE".into() },
+            Quake3Events::Kill         { event_id: 6, killer_id: 2, victim_id: 1, reason_id: 2, killer_name: "Player2".into(), victim_name: "Player1".into(), reason_name: "NONE".into() },
+            Quake3Events::Kill         { event_id: 7, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Player1".into(), victim_name: "Player2".into(), reason_name: "NONE".into() },
             Quake3Events::ShutdownGame { event_id: 8 },
         ];
         let expected_summaries = vec![
@@ -563,11 +565,11 @@ mod tests {
         let events = vec![
             Quake3Events::InitGame              { event_id: 1 },
             Quake3Events::ClientConnect         { event_id: 2, client_id: 1 },
-            Quake3Events::ClientUserinfoChanged { event_id: 3, client_id: 1, name: "Bartolo".to_owned() },
+            Quake3Events::ClientUserinfoChanged { event_id: 3, client_id: 1, name: "Bartolo".into() },
             Quake3Events::ClientConnect         { event_id: 4, client_id: 2 },
-            Quake3Events::ClientUserinfoChanged { event_id: 5, client_id: 2, name: "Mielina".to_owned() },
-            Quake3Events::Kill                  { event_id: 6, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Bartolo".to_owned(), victim_name: "Mielina".to_owned(), reason_name: "ANY".to_owned() },
-            Quake3Events::Kill                  { event_id: 7, killer_id: 2, victim_id: 1, reason_id: 2, killer_name: "Mielina".to_owned(), victim_name: "Bartolo".to_owned(), reason_name: "ANY".to_owned() },
+            Quake3Events::ClientUserinfoChanged { event_id: 5, client_id: 2, name: "Mielina".into() },
+            Quake3Events::Kill                  { event_id: 6, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Bartolo".into(), victim_name: "Mielina".into(), reason_name: "ANY".into() },
+            Quake3Events::Kill                  { event_id: 7, killer_id: 2, victim_id: 1, reason_id: 2, killer_name: "Mielina".into(), victim_name: "Bartolo".into(), reason_name: "ANY".into() },
             Quake3Events::ClientDisconnect      { event_id: 8, client_id: 1 },
             Quake3Events::ShutdownGame          { event_id: 9 },
         ];
@@ -598,16 +600,16 @@ mod tests {
         let events = vec![
             Quake3Events::InitGame              { event_id: 1 },
             Quake3Events::ClientConnect         { event_id: 2,  client_id: 1 },
-            Quake3Events::ClientUserinfoChanged { event_id: 3,  client_id: 1, name: "Bartolo".to_owned() },
+            Quake3Events::ClientUserinfoChanged { event_id: 3,  client_id: 1, name: "Bartolo".into() },
             Quake3Events::ClientConnect         { event_id: 4,  client_id: 2 },
-            Quake3Events::ClientUserinfoChanged { event_id: 5,  client_id: 2, name: "Mielina".to_owned() },
-            Quake3Events::Kill                  { event_id: 6,  killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Bartolo".to_owned(), victim_name: "Mielina".to_owned(), reason_name: "ANY".to_owned() },
-            Quake3Events::Kill                  { event_id: 7,  killer_id: 2, victim_id: 1, reason_id: 2, killer_name: "Mielina".to_owned(), victim_name: "Bartolo".to_owned(), reason_name: "ANY".to_owned() },
+            Quake3Events::ClientUserinfoChanged { event_id: 5,  client_id: 2, name: "Mielina".into() },
+            Quake3Events::Kill                  { event_id: 6,  killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Bartolo".into(), victim_name: "Mielina".into(), reason_name: "ANY".into() },
+            Quake3Events::Kill                  { event_id: 7,  killer_id: 2, victim_id: 1, reason_id: 2, killer_name: "Mielina".into(), victim_name: "Bartolo".into(), reason_name: "ANY".into() },
             Quake3Events::ClientDisconnect      { event_id: 8,  client_id: 1 },
             Quake3Events::ClientConnect         { event_id: 9,  client_id: 3 },
-            Quake3Events::ClientUserinfoChanged { event_id: 10, client_id: 3, name: "Bartolo".to_owned() },
-            Quake3Events::Kill                  { event_id: 11, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Bartolo".to_owned(), victim_name: "Mielina".to_owned(), reason_name: "ANY".to_owned() },
-            Quake3Events::Kill                  { event_id: 12, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Bartolo".to_owned(), victim_name: "Mielina".to_owned(), reason_name: "ANY".to_owned() },
+            Quake3Events::ClientUserinfoChanged { event_id: 10, client_id: 3, name: "Bartolo".into() },
+            Quake3Events::Kill                  { event_id: 11, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Bartolo".into(), victim_name: "Mielina".into(), reason_name: "ANY".into() },
+            Quake3Events::Kill                  { event_id: 12, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Bartolo".into(), victim_name: "Mielina".into(), reason_name: "ANY".into() },
             Quake3Events::ShutdownGame          { event_id: 13 },
         ];
         let expected_summaries = vec![
@@ -638,14 +640,14 @@ mod tests {
         let events = vec![
             Quake3Events::InitGame              { event_id:  1 },
             Quake3Events::ClientConnect         { event_id:  2, client_id: 1 },
-            Quake3Events::ClientUserinfoChanged { event_id:  3, client_id: 1, name: "Bartolo".to_owned() },
+            Quake3Events::ClientUserinfoChanged { event_id:  3, client_id: 1, name: "Bartolo".into() },
             Quake3Events::ClientConnect         { event_id:  4, client_id: 2 },
-            Quake3Events::ClientUserinfoChanged { event_id:  5, client_id: 2, name: "Mielina".to_owned() },
-            Quake3Events::Kill                  { event_id:  6, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Bartolo".to_owned(), victim_name: "Mielina".to_owned(), reason_name: "ANY".to_owned() },
-            Quake3Events::Kill                  { event_id:  7, killer_id: 2, victim_id: 1, reason_id: 2, killer_name: "Mielina".to_owned(), victim_name: "Bartolo".to_owned(), reason_name: "ANY".to_owned() },
-            Quake3Events::ClientUserinfoChanged { event_id:  8, client_id: 1, name: "Bartholo".to_owned() },
-            Quake3Events::Kill                  { event_id:  9, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Bartholo".to_owned(), victim_name: "Mielina".to_owned(), reason_name: "ANY".to_owned() },
-            Quake3Events::Kill                  { event_id: 10, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Bartholo".to_owned(), victim_name: "Mielina".to_owned(), reason_name: "ANY".to_owned() },
+            Quake3Events::ClientUserinfoChanged { event_id:  5, client_id: 2, name: "Mielina".into() },
+            Quake3Events::Kill                  { event_id:  6, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Bartolo".into(), victim_name: "Mielina".into(), reason_name: "ANY".into() },
+            Quake3Events::Kill                  { event_id:  7, killer_id: 2, victim_id: 1, reason_id: 2, killer_name: "Mielina".into(), victim_name: "Bartolo".into(), reason_name: "ANY".into() },
+            Quake3Events::ClientUserinfoChanged { event_id:  8, client_id: 1, name: "Bartholo".into() },
+            Quake3Events::Kill                  { event_id:  9, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Bartholo".into(), victim_name: "Mielina".into(), reason_name: "ANY".into() },
+            Quake3Events::Kill                  { event_id: 10, killer_id: 1, victim_id: 2, reason_id: 1, killer_name: "Bartholo".into(), victim_name: "Mielina".into(), reason_name: "ANY".into() },
             Quake3Events::ShutdownGame          { event_id: 11 },
         ];
         let expected_summaries = vec![
@@ -679,124 +681,124 @@ mod tests {
         let events = vec![
             Quake3Events::InitGame              { event_id:   1 },
             Quake3Events::ClientConnect         { event_id:   2, client_id: 2 },
-            Quake3Events::ClientUserinfoChanged { event_id:   3, client_id: 2, name: "Dono da Bola".to_owned() },
+            Quake3Events::ClientUserinfoChanged { event_id:   3, client_id: 2, name: "Dono da Bola".into() },
             Quake3Events::ClientConnect         { event_id:   4, client_id: 3 },
-            Quake3Events::ClientUserinfoChanged { event_id:   5, client_id: 3, name: "Isgalamido".to_owned() },
+            Quake3Events::ClientUserinfoChanged { event_id:   5, client_id: 3, name: "Isgalamido".into() },
             Quake3Events::ClientConnect         { event_id:   6, client_id: 4 },
-            Quake3Events::ClientUserinfoChanged { event_id:   7, client_id: 4, name: "Zeh".to_owned() },
-            Quake3Events::Kill                  { event_id:   8, killer_id: 1022, victim_id: 3, reason_id: 22, killer_name: "<world>".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_TRIGGER_HURT".to_owned() },
-            Quake3Events::Kill                  { event_id:   9, killer_id: 1022, victim_id: 2, reason_id: 19, killer_name: "<world>".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_FALLING".to_owned() },
-            Quake3Events::Kill                  { event_id:  10, killer_id: 1022, victim_id: 3, reason_id: 19, killer_name: "<world>".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_FALLING".to_owned() },
-            Quake3Events::Kill                  { event_id:  11, killer_id: 2, victim_id: 4, reason_id: 6, killer_name: "Dono da Bola".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  12, killer_id: 3, victim_id: 2, reason_id: 10, killer_name: "Isgalamido".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_RAILGUN".to_owned() },
-            Quake3Events::Kill                  { event_id:  13, killer_id: 3, victim_id: 4, reason_id: 10, killer_name: "Isgalamido".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_RAILGUN".to_owned() },
-            Quake3Events::Kill                  { event_id:  14, killer_id: 3, victim_id: 2, reason_id: 10, killer_name: "Isgalamido".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_RAILGUN".to_owned() },
-            Quake3Events::Kill                  { event_id:  15, killer_id: 3, victim_id: 4, reason_id: 10, killer_name: "Isgalamido".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_RAILGUN".to_owned() },
-            Quake3Events::Kill                  { event_id:  16, killer_id: 3, victim_id: 4, reason_id: 10, killer_name: "Isgalamido".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_RAILGUN".to_owned() },
-            Quake3Events::Kill                  { event_id:  17, killer_id: 2, victim_id: 4, reason_id: 6, killer_name: "Dono da Bola".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  18, killer_id: 3, victim_id: 2, reason_id: 6, killer_name: "Isgalamido".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  19, killer_id: 1022, victim_id: 3, reason_id: 22, killer_name: "<world>".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_TRIGGER_HURT".to_owned() },
-            Quake3Events::Kill                  { event_id:  20, killer_id: 4, victim_id: 2, reason_id: 6, killer_name: "Zeh".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  21, killer_id: 3, victim_id: 4, reason_id: 6, killer_name: "Isgalamido".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  22, killer_id: 3, victim_id: 4, reason_id: 7, killer_name: "Isgalamido".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  23, killer_id: 2, victim_id: 3, reason_id: 6, killer_name: "Dono da Bola".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
+            Quake3Events::ClientUserinfoChanged { event_id:   7, client_id: 4, name: "Zeh".into() },
+            Quake3Events::Kill                  { event_id:   8, killer_id: 1022, victim_id: 3, reason_id: 22, killer_name: "<world>".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_TRIGGER_HURT".into() },
+            Quake3Events::Kill                  { event_id:   9, killer_id: 1022, victim_id: 2, reason_id: 19, killer_name: "<world>".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_FALLING".into() },
+            Quake3Events::Kill                  { event_id:  10, killer_id: 1022, victim_id: 3, reason_id: 19, killer_name: "<world>".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_FALLING".into() },
+            Quake3Events::Kill                  { event_id:  11, killer_id: 2, victim_id: 4, reason_id: 6, killer_name: "Dono da Bola".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  12, killer_id: 3, victim_id: 2, reason_id: 10, killer_name: "Isgalamido".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_RAILGUN".into() },
+            Quake3Events::Kill                  { event_id:  13, killer_id: 3, victim_id: 4, reason_id: 10, killer_name: "Isgalamido".into(), victim_name: "Zeh".into(), reason_name: "MOD_RAILGUN".into() },
+            Quake3Events::Kill                  { event_id:  14, killer_id: 3, victim_id: 2, reason_id: 10, killer_name: "Isgalamido".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_RAILGUN".into() },
+            Quake3Events::Kill                  { event_id:  15, killer_id: 3, victim_id: 4, reason_id: 10, killer_name: "Isgalamido".into(), victim_name: "Zeh".into(), reason_name: "MOD_RAILGUN".into() },
+            Quake3Events::Kill                  { event_id:  16, killer_id: 3, victim_id: 4, reason_id: 10, killer_name: "Isgalamido".into(), victim_name: "Zeh".into(), reason_name: "MOD_RAILGUN".into() },
+            Quake3Events::Kill                  { event_id:  17, killer_id: 2, victim_id: 4, reason_id: 6, killer_name: "Dono da Bola".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  18, killer_id: 3, victim_id: 2, reason_id: 6, killer_name: "Isgalamido".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  19, killer_id: 1022, victim_id: 3, reason_id: 22, killer_name: "<world>".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_TRIGGER_HURT".into() },
+            Quake3Events::Kill                  { event_id:  20, killer_id: 4, victim_id: 2, reason_id: 6, killer_name: "Zeh".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  21, killer_id: 3, victim_id: 4, reason_id: 6, killer_name: "Isgalamido".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  22, killer_id: 3, victim_id: 4, reason_id: 7, killer_name: "Isgalamido".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  23, killer_id: 2, victim_id: 3, reason_id: 6, killer_name: "Dono da Bola".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_ROCKET".into() },
             Quake3Events::ClientConnect         { event_id:  24, client_id: 5 },
-            Quake3Events::ClientUserinfoChanged { event_id:  25, client_id: 5, name: "Assasinu Credi".to_owned() },
-            Quake3Events::ClientUserinfoChanged { event_id:  26, client_id: 5, name: "Assasinu Credi".to_owned() },
-            Quake3Events::Kill                  { event_id:  27, killer_id: 1022, victim_id: 2, reason_id: 19, killer_name: "<world>".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_FALLING".to_owned() },
-            Quake3Events::Kill                  { event_id:  28, killer_id: 4, victim_id: 5, reason_id: 6, killer_name: "Zeh".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  29, killer_id: 4, victim_id: 2, reason_id: 6, killer_name: "Zeh".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  30, killer_id: 4, victim_id: 3, reason_id: 7, killer_name: "Zeh".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  31, killer_id: 1022, victim_id: 5, reason_id: 19, killer_name: "<world>".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_FALLING".to_owned() },
-            Quake3Events::Kill                  { event_id:  32, killer_id: 1022, victim_id: 3, reason_id: 22, killer_name: "<world>".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_TRIGGER_HURT".to_owned() },
-            Quake3Events::Kill                  { event_id:  33, killer_id: 4, victim_id: 2, reason_id: 7, killer_name: "Zeh".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  34, killer_id: 3, victim_id: 4, reason_id: 7, killer_name: "Isgalamido".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  35, killer_id: 3, victim_id: 5, reason_id: 3, killer_name: "Isgalamido".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_MACHINEGUN".to_owned() },
-            Quake3Events::Kill                  { event_id:  36, killer_id: 3, victim_id: 4, reason_id: 3, killer_name: "Isgalamido".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_MACHINEGUN".to_owned() },
-            Quake3Events::Kill                  { event_id:  37, killer_id: 2, victim_id: 3, reason_id: 6, killer_name: "Dono da Bola".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  38, killer_id: 2, victim_id: 2, reason_id: 7, killer_name: "Dono da Bola".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  39, killer_id: 4, victim_id: 3, reason_id: 7, killer_name: "Zeh".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  40, killer_id: 4, victim_id: 5, reason_id: 6, killer_name: "Zeh".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  41, killer_id: 4, victim_id: 3, reason_id: 7, killer_name: "Zeh".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  42, killer_id: 5, victim_id: 4, reason_id: 7, killer_name: "Assasinu Credi".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  43, killer_id: 1022, victim_id: 3, reason_id: 19, killer_name: "<world>".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_FALLING".to_owned() },
-            Quake3Events::Kill                  { event_id:  44, killer_id: 4, victim_id: 2, reason_id: 7, killer_name: "Zeh".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  45, killer_id: 4, victim_id: 5, reason_id: 7, killer_name: "Zeh".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  46, killer_id: 3, victim_id: 2, reason_id: 7, killer_name: "Isgalamido".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  47, killer_id: 1022, victim_id: 3, reason_id: 19, killer_name: "<world>".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_FALLING".to_owned() },
-            Quake3Events::Kill                  { event_id:  48, killer_id: 5, victim_id: 4, reason_id: 7, killer_name: "Assasinu Credi".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  49, killer_id: 5, victim_id: 2, reason_id: 7, killer_name: "Assasinu Credi".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  50, killer_id: 5, victim_id: 3, reason_id: 7, killer_name: "Assasinu Credi".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  51, killer_id: 2, victim_id: 3, reason_id: 6, killer_name: "Dono da Bola".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  52, killer_id: 1022, victim_id: 2, reason_id: 22, killer_name: "<world>".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_TRIGGER_HURT".to_owned() },
-            Quake3Events::Kill                  { event_id:  53, killer_id: 4, victim_id: 5, reason_id: 7, killer_name: "Zeh".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  54, killer_id: 1022, victim_id: 2, reason_id: 22, killer_name: "<world>".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_TRIGGER_HURT".to_owned() },
-            Quake3Events::Kill                  { event_id:  55, killer_id: 4, victim_id: 5, reason_id: 7, killer_name: "Zeh".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  56, killer_id: 5, victim_id: 4, reason_id: 7, killer_name: "Assasinu Credi".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  57, killer_id: 2, victim_id: 3, reason_id: 7, killer_name: "Dono da Bola".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  58, killer_id: 2, victim_id: 4, reason_id: 6, killer_name: "Dono da Bola".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  59, killer_id: 2, victim_id: 2, reason_id: 7, killer_name: "Dono da Bola".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  60, killer_id: 5, victim_id: 3, reason_id: 7, killer_name: "Assasinu Credi".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  61, killer_id: 1022, victim_id: 2, reason_id: 22, killer_name: "<world>".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_TRIGGER_HURT".to_owned() },
-            Quake3Events::Kill                  { event_id:  62, killer_id: 1022, victim_id: 3, reason_id: 22, killer_name: "<world>".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_TRIGGER_HURT".to_owned() },
-            Quake3Events::Kill                  { event_id:  63, killer_id: 4, victim_id: 2, reason_id: 6, killer_name: "Zeh".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  64, killer_id: 2, victim_id: 5, reason_id: 7, killer_name: "Dono da Bola".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  65, killer_id: 4, victim_id: 2, reason_id: 7, killer_name: "Zeh".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  66, killer_id: 2, victim_id: 2, reason_id: 7, killer_name: "Dono da Bola".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  67, killer_id: 4, victim_id: 3, reason_id: 7, killer_name: "Zeh".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  68, killer_id: 2, victim_id: 5, reason_id: 7, killer_name: "Dono da Bola".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  69, killer_id: 1022, victim_id: 2, reason_id: 19, killer_name: "<world>".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_FALLING".to_owned() },
-            Quake3Events::Kill                  { event_id:  70, killer_id: 1022, victim_id: 4, reason_id: 19, killer_name: "<world>".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_FALLING".to_owned() },
-            Quake3Events::Kill                  { event_id:  71, killer_id: 5, victim_id: 2, reason_id: 6, killer_name: "Assasinu Credi".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  72, killer_id: 5, victim_id: 4, reason_id: 7, killer_name: "Assasinu Credi".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  73, killer_id: 3, victim_id: 5, reason_id: 6, killer_name: "Isgalamido".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  74, killer_id: 2, victim_id: 5, reason_id: 7, killer_name: "Dono da Bola".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  75, killer_id: 2, victim_id: 5, reason_id: 7, killer_name: "Dono da Bola".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  76, killer_id: 4, victim_id: 3, reason_id: 7, killer_name: "Zeh".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  77, killer_id: 2, victim_id: 2, reason_id: 7, killer_name: "Dono da Bola".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  78, killer_id: 3, victim_id: 4, reason_id: 10, killer_name: "Isgalamido".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_RAILGUN".to_owned() },
-            Quake3Events::Kill                  { event_id:  79, killer_id: 3, victim_id: 5, reason_id: 10, killer_name: "Isgalamido".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_RAILGUN".to_owned() },
-            Quake3Events::Kill                  { event_id:  80, killer_id: 4, victim_id: 3, reason_id: 1, killer_name: "Zeh".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_SHOTGUN".to_owned() },
-            Quake3Events::Kill                  { event_id:  81, killer_id: 2, victim_id: 4, reason_id: 7, killer_name: "Dono da Bola".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  82, killer_id: 4, victim_id: 5, reason_id: 7, killer_name: "Zeh".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  83, killer_id: 3, victim_id: 2, reason_id: 7, killer_name: "Isgalamido".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  84, killer_id: 4, victim_id: 5, reason_id: 6, killer_name: "Zeh".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  85, killer_id: 4, victim_id: 5, reason_id: 7, killer_name: "Zeh".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  86, killer_id: 3, victim_id: 4, reason_id: 7, killer_name: "Isgalamido".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  87, killer_id: 1022, victim_id: 2, reason_id: 19, killer_name: "<world>".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_FALLING".to_owned() },
-            Quake3Events::Kill                  { event_id:  88, killer_id: 3, victim_id: 2, reason_id: 3, killer_name: "Isgalamido".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_MACHINEGUN".to_owned() },
-            Quake3Events::Kill                  { event_id:  89, killer_id: 5, victim_id: 4, reason_id: 7, killer_name: "Assasinu Credi".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  90, killer_id: 3, victim_id: 2, reason_id: 1, killer_name: "Isgalamido".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_SHOTGUN".to_owned() },
-            Quake3Events::Kill                  { event_id:  91, killer_id: 5, victim_id: 3, reason_id: 7, killer_name: "Assasinu Credi".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  92, killer_id: 2, victim_id: 5, reason_id: 6, killer_name: "Dono da Bola".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  93, killer_id: 2, victim_id: 4, reason_id: 6, killer_name: "Dono da Bola".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  94, killer_id: 5, victim_id: 2, reason_id: 7, killer_name: "Assasinu Credi".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  95, killer_id: 5, victim_id: 4, reason_id: 7, killer_name: "Assasinu Credi".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  96, killer_id: 3, victim_id: 5, reason_id: 7, killer_name: "Isgalamido".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  97, killer_id: 3, victim_id: 2, reason_id: 6, killer_name: "Isgalamido".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id:  98, killer_id: 5, victim_id: 3, reason_id: 7, killer_name: "Assasinu Credi".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id:  99, killer_id: 3, victim_id: 4, reason_id: 7, killer_name: "Isgalamido".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id: 100, killer_id: 3, victim_id: 5, reason_id: 7, killer_name: "Isgalamido".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id: 101, killer_id: 3, victim_id: 4, reason_id: 3, killer_name: "Isgalamido".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_MACHINEGUN".to_owned() },
-            Quake3Events::Kill                  { event_id: 102, killer_id: 1022, victim_id: 5, reason_id: 22, killer_name: "<world>".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_TRIGGER_HURT".to_owned() },
-            Quake3Events::Kill                  { event_id: 103, killer_id: 2, victim_id: 4, reason_id: 10, killer_name: "Dono da Bola".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_RAILGUN".to_owned() },
-            Quake3Events::Kill                  { event_id: 104, killer_id: 3, victim_id: 4, reason_id: 7, killer_name: "Isgalamido".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id: 105, killer_id: 5, victim_id: 2, reason_id: 7, killer_name: "Assasinu Credi".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id: 106, killer_id: 1022, victim_id: 3, reason_id: 19, killer_name: "<world>".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_FALLING".to_owned() },
-            Quake3Events::Kill                  { event_id: 107, killer_id: 2, victim_id: 5, reason_id: 7, killer_name: "Dono da Bola".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id: 108, killer_id: 5, victim_id: 4, reason_id: 7, killer_name: "Assasinu Credi".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id: 109, killer_id: 5, victim_id: 5, reason_id: 7, killer_name: "Assasinu Credi".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id: 110, killer_id: 3, victim_id: 2, reason_id: 7, killer_name: "Isgalamido".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id: 111, killer_id: 1022, victim_id: 4, reason_id: 22, killer_name: "<world>".to_owned(), victim_name: "Zeh".to_owned(), reason_name: "MOD_TRIGGER_HURT".to_owned() },
-            Quake3Events::Kill                  { event_id: 112, killer_id: 1022, victim_id: 5, reason_id: 19, killer_name: "<world>".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_FALLING".to_owned() },
-            Quake3Events::Kill                  { event_id: 113, killer_id: 4, victim_id: 2, reason_id: 7, killer_name: "Zeh".to_owned(), victim_name: "Dono da Bola".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
-            Quake3Events::Kill                  { event_id: 114, killer_id: 3, victim_id: 5, reason_id: 6, killer_name: "Isgalamido".to_owned(), victim_name: "Assasinu Credi".to_owned(), reason_name: "MOD_ROCKET".to_owned() },
-            Quake3Events::Kill                  { event_id: 115, killer_id: 4, victim_id: 3, reason_id: 7, killer_name: "Zeh".to_owned(), victim_name: "Isgalamido".to_owned(), reason_name: "MOD_ROCKET_SPLASH".to_owned() },
+            Quake3Events::ClientUserinfoChanged { event_id:  25, client_id: 5, name: "Assasinu Credi".into() },
+            Quake3Events::ClientUserinfoChanged { event_id:  26, client_id: 5, name: "Assasinu Credi".into() },
+            Quake3Events::Kill                  { event_id:  27, killer_id: 1022, victim_id: 2, reason_id: 19, killer_name: "<world>".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_FALLING".into() },
+            Quake3Events::Kill                  { event_id:  28, killer_id: 4, victim_id: 5, reason_id: 6, killer_name: "Zeh".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  29, killer_id: 4, victim_id: 2, reason_id: 6, killer_name: "Zeh".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  30, killer_id: 4, victim_id: 3, reason_id: 7, killer_name: "Zeh".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  31, killer_id: 1022, victim_id: 5, reason_id: 19, killer_name: "<world>".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_FALLING".into() },
+            Quake3Events::Kill                  { event_id:  32, killer_id: 1022, victim_id: 3, reason_id: 22, killer_name: "<world>".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_TRIGGER_HURT".into() },
+            Quake3Events::Kill                  { event_id:  33, killer_id: 4, victim_id: 2, reason_id: 7, killer_name: "Zeh".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  34, killer_id: 3, victim_id: 4, reason_id: 7, killer_name: "Isgalamido".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  35, killer_id: 3, victim_id: 5, reason_id: 3, killer_name: "Isgalamido".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_MACHINEGUN".into() },
+            Quake3Events::Kill                  { event_id:  36, killer_id: 3, victim_id: 4, reason_id: 3, killer_name: "Isgalamido".into(), victim_name: "Zeh".into(), reason_name: "MOD_MACHINEGUN".into() },
+            Quake3Events::Kill                  { event_id:  37, killer_id: 2, victim_id: 3, reason_id: 6, killer_name: "Dono da Bola".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  38, killer_id: 2, victim_id: 2, reason_id: 7, killer_name: "Dono da Bola".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  39, killer_id: 4, victim_id: 3, reason_id: 7, killer_name: "Zeh".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  40, killer_id: 4, victim_id: 5, reason_id: 6, killer_name: "Zeh".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  41, killer_id: 4, victim_id: 3, reason_id: 7, killer_name: "Zeh".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  42, killer_id: 5, victim_id: 4, reason_id: 7, killer_name: "Assasinu Credi".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  43, killer_id: 1022, victim_id: 3, reason_id: 19, killer_name: "<world>".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_FALLING".into() },
+            Quake3Events::Kill                  { event_id:  44, killer_id: 4, victim_id: 2, reason_id: 7, killer_name: "Zeh".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  45, killer_id: 4, victim_id: 5, reason_id: 7, killer_name: "Zeh".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  46, killer_id: 3, victim_id: 2, reason_id: 7, killer_name: "Isgalamido".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  47, killer_id: 1022, victim_id: 3, reason_id: 19, killer_name: "<world>".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_FALLING".into() },
+            Quake3Events::Kill                  { event_id:  48, killer_id: 5, victim_id: 4, reason_id: 7, killer_name: "Assasinu Credi".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  49, killer_id: 5, victim_id: 2, reason_id: 7, killer_name: "Assasinu Credi".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  50, killer_id: 5, victim_id: 3, reason_id: 7, killer_name: "Assasinu Credi".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  51, killer_id: 2, victim_id: 3, reason_id: 6, killer_name: "Dono da Bola".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  52, killer_id: 1022, victim_id: 2, reason_id: 22, killer_name: "<world>".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_TRIGGER_HURT".into() },
+            Quake3Events::Kill                  { event_id:  53, killer_id: 4, victim_id: 5, reason_id: 7, killer_name: "Zeh".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  54, killer_id: 1022, victim_id: 2, reason_id: 22, killer_name: "<world>".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_TRIGGER_HURT".into() },
+            Quake3Events::Kill                  { event_id:  55, killer_id: 4, victim_id: 5, reason_id: 7, killer_name: "Zeh".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  56, killer_id: 5, victim_id: 4, reason_id: 7, killer_name: "Assasinu Credi".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  57, killer_id: 2, victim_id: 3, reason_id: 7, killer_name: "Dono da Bola".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  58, killer_id: 2, victim_id: 4, reason_id: 6, killer_name: "Dono da Bola".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  59, killer_id: 2, victim_id: 2, reason_id: 7, killer_name: "Dono da Bola".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  60, killer_id: 5, victim_id: 3, reason_id: 7, killer_name: "Assasinu Credi".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  61, killer_id: 1022, victim_id: 2, reason_id: 22, killer_name: "<world>".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_TRIGGER_HURT".into() },
+            Quake3Events::Kill                  { event_id:  62, killer_id: 1022, victim_id: 3, reason_id: 22, killer_name: "<world>".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_TRIGGER_HURT".into() },
+            Quake3Events::Kill                  { event_id:  63, killer_id: 4, victim_id: 2, reason_id: 6, killer_name: "Zeh".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  64, killer_id: 2, victim_id: 5, reason_id: 7, killer_name: "Dono da Bola".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  65, killer_id: 4, victim_id: 2, reason_id: 7, killer_name: "Zeh".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  66, killer_id: 2, victim_id: 2, reason_id: 7, killer_name: "Dono da Bola".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  67, killer_id: 4, victim_id: 3, reason_id: 7, killer_name: "Zeh".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  68, killer_id: 2, victim_id: 5, reason_id: 7, killer_name: "Dono da Bola".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  69, killer_id: 1022, victim_id: 2, reason_id: 19, killer_name: "<world>".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_FALLING".into() },
+            Quake3Events::Kill                  { event_id:  70, killer_id: 1022, victim_id: 4, reason_id: 19, killer_name: "<world>".into(), victim_name: "Zeh".into(), reason_name: "MOD_FALLING".into() },
+            Quake3Events::Kill                  { event_id:  71, killer_id: 5, victim_id: 2, reason_id: 6, killer_name: "Assasinu Credi".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  72, killer_id: 5, victim_id: 4, reason_id: 7, killer_name: "Assasinu Credi".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  73, killer_id: 3, victim_id: 5, reason_id: 6, killer_name: "Isgalamido".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  74, killer_id: 2, victim_id: 5, reason_id: 7, killer_name: "Dono da Bola".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  75, killer_id: 2, victim_id: 5, reason_id: 7, killer_name: "Dono da Bola".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  76, killer_id: 4, victim_id: 3, reason_id: 7, killer_name: "Zeh".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  77, killer_id: 2, victim_id: 2, reason_id: 7, killer_name: "Dono da Bola".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  78, killer_id: 3, victim_id: 4, reason_id: 10, killer_name: "Isgalamido".into(), victim_name: "Zeh".into(), reason_name: "MOD_RAILGUN".into() },
+            Quake3Events::Kill                  { event_id:  79, killer_id: 3, victim_id: 5, reason_id: 10, killer_name: "Isgalamido".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_RAILGUN".into() },
+            Quake3Events::Kill                  { event_id:  80, killer_id: 4, victim_id: 3, reason_id: 1, killer_name: "Zeh".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_SHOTGUN".into() },
+            Quake3Events::Kill                  { event_id:  81, killer_id: 2, victim_id: 4, reason_id: 7, killer_name: "Dono da Bola".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  82, killer_id: 4, victim_id: 5, reason_id: 7, killer_name: "Zeh".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  83, killer_id: 3, victim_id: 2, reason_id: 7, killer_name: "Isgalamido".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  84, killer_id: 4, victim_id: 5, reason_id: 6, killer_name: "Zeh".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  85, killer_id: 4, victim_id: 5, reason_id: 7, killer_name: "Zeh".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  86, killer_id: 3, victim_id: 4, reason_id: 7, killer_name: "Isgalamido".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  87, killer_id: 1022, victim_id: 2, reason_id: 19, killer_name: "<world>".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_FALLING".into() },
+            Quake3Events::Kill                  { event_id:  88, killer_id: 3, victim_id: 2, reason_id: 3, killer_name: "Isgalamido".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_MACHINEGUN".into() },
+            Quake3Events::Kill                  { event_id:  89, killer_id: 5, victim_id: 4, reason_id: 7, killer_name: "Assasinu Credi".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  90, killer_id: 3, victim_id: 2, reason_id: 1, killer_name: "Isgalamido".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_SHOTGUN".into() },
+            Quake3Events::Kill                  { event_id:  91, killer_id: 5, victim_id: 3, reason_id: 7, killer_name: "Assasinu Credi".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  92, killer_id: 2, victim_id: 5, reason_id: 6, killer_name: "Dono da Bola".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  93, killer_id: 2, victim_id: 4, reason_id: 6, killer_name: "Dono da Bola".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  94, killer_id: 5, victim_id: 2, reason_id: 7, killer_name: "Assasinu Credi".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  95, killer_id: 5, victim_id: 4, reason_id: 7, killer_name: "Assasinu Credi".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  96, killer_id: 3, victim_id: 5, reason_id: 7, killer_name: "Isgalamido".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  97, killer_id: 3, victim_id: 2, reason_id: 6, killer_name: "Isgalamido".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id:  98, killer_id: 5, victim_id: 3, reason_id: 7, killer_name: "Assasinu Credi".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id:  99, killer_id: 3, victim_id: 4, reason_id: 7, killer_name: "Isgalamido".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id: 100, killer_id: 3, victim_id: 5, reason_id: 7, killer_name: "Isgalamido".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id: 101, killer_id: 3, victim_id: 4, reason_id: 3, killer_name: "Isgalamido".into(), victim_name: "Zeh".into(), reason_name: "MOD_MACHINEGUN".into() },
+            Quake3Events::Kill                  { event_id: 102, killer_id: 1022, victim_id: 5, reason_id: 22, killer_name: "<world>".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_TRIGGER_HURT".into() },
+            Quake3Events::Kill                  { event_id: 103, killer_id: 2, victim_id: 4, reason_id: 10, killer_name: "Dono da Bola".into(), victim_name: "Zeh".into(), reason_name: "MOD_RAILGUN".into() },
+            Quake3Events::Kill                  { event_id: 104, killer_id: 3, victim_id: 4, reason_id: 7, killer_name: "Isgalamido".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id: 105, killer_id: 5, victim_id: 2, reason_id: 7, killer_name: "Assasinu Credi".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id: 106, killer_id: 1022, victim_id: 3, reason_id: 19, killer_name: "<world>".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_FALLING".into() },
+            Quake3Events::Kill                  { event_id: 107, killer_id: 2, victim_id: 5, reason_id: 7, killer_name: "Dono da Bola".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id: 108, killer_id: 5, victim_id: 4, reason_id: 7, killer_name: "Assasinu Credi".into(), victim_name: "Zeh".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id: 109, killer_id: 5, victim_id: 5, reason_id: 7, killer_name: "Assasinu Credi".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id: 110, killer_id: 3, victim_id: 2, reason_id: 7, killer_name: "Isgalamido".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id: 111, killer_id: 1022, victim_id: 4, reason_id: 22, killer_name: "<world>".into(), victim_name: "Zeh".into(), reason_name: "MOD_TRIGGER_HURT".into() },
+            Quake3Events::Kill                  { event_id: 112, killer_id: 1022, victim_id: 5, reason_id: 19, killer_name: "<world>".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_FALLING".into() },
+            Quake3Events::Kill                  { event_id: 113, killer_id: 4, victim_id: 2, reason_id: 7, killer_name: "Zeh".into(), victim_name: "Dono da Bola".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
+            Quake3Events::Kill                  { event_id: 114, killer_id: 3, victim_id: 5, reason_id: 6, killer_name: "Isgalamido".into(), victim_name: "Assasinu Credi".into(), reason_name: "MOD_ROCKET".into() },
+            Quake3Events::Kill                  { event_id: 115, killer_id: 4, victim_id: 3, reason_id: 7, killer_name: "Zeh".into(), victim_name: "Isgalamido".into(), reason_name: "MOD_ROCKET_SPLASH".into() },
             Quake3Events::Exit                  { event_id: 116 },
-            Quake3Events::Score                 { event_id: 117, frags: 20, client_id: 4, name: "Zeh".to_owned() },
-            Quake3Events::Score                 { event_id: 118, frags: 19, client_id: 3, name: "Isgalamido".to_owned() },
-            Quake3Events::Score                 { event_id: 119, frags: 11, client_id: 5, name: "Assasinu Credi".to_owned() },
-            Quake3Events::Score                 { event_id: 120, frags: 5, client_id: 2, name: "Dono da Bola".to_owned() },
+            Quake3Events::Score                 { event_id: 117, frags: 20, client_id: 4, name: "Zeh".into() },
+            Quake3Events::Score                 { event_id: 118, frags: 19, client_id: 3, name: "Isgalamido".into() },
+            Quake3Events::Score                 { event_id: 119, frags: 11, client_id: 5, name: "Assasinu Credi".into() },
+            Quake3Events::Score                 { event_id: 120, frags: 5, client_id: 2, name: "Dono da Bola".into() },
             Quake3Events::ShutdownGame          { event_id: 121 },
         ];
         println!("Number of kills: {}", events.iter().filter(|event| matches!(event, Quake3Events::Kill {..})).count());
@@ -916,7 +918,7 @@ mod tests {
         })
     }
 
-    fn assert_mock_summaries(config: Arc<Config>, events: Vec<Quake3Events>, expected_summaries: Vec<GameMatchSummary>) {
+    fn assert_mock_summaries(config: Arc<Config>, events: Vec<Quake3Events<'static>>, expected_summaries: Vec<GameMatchSummary>) {
         let log_dao = TestDAL::new(events);
         let summaries_stream = summarize_games(config, log_dao).expect("sumarize_games() shouldn't fail here");
         let summaries: Vec<GameMatchSummary> = futures::executor::block_on_stream(summaries_stream).enumerate()
@@ -943,17 +945,17 @@ mod tests {
 
 
     /// Mock DAL for tests
-    struct TestDAL {
-        events: Vec<Quake3Events>,
+    struct TestDAL<'a> {
+        events: Vec<Quake3Events<'a>>,
     }
-    impl TestDAL {
+    impl<'a> TestDAL<'a> {
         /// Creates a new mock DAL for tests, yielding the all the `events`
-        pub fn new(events: Vec<Quake3Events>) -> Self {
+        pub fn new(events: Vec<Quake3Events<'a>>) -> Self {
             Self { events }
         }
     }
-    impl Quake3ServerEvents for TestDAL {
-        fn events_stream(self) -> Result<Pin<Box<dyn Stream<Item=Quake3Events>>>> {
+    impl Quake3ServerEvents for TestDAL<'static> {
+        fn events_stream(self) -> Result<Pin<Box<dyn Stream<Item=Quake3Events<'static>>>>> {
             let stream = stream::iter(self.events)
                 .map(|event| event);
             Ok(Box::pin(stream))
