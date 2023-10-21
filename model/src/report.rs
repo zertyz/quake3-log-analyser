@@ -17,8 +17,13 @@ pub struct GameMatchSummary {
     /// The frag score for each of the [Self::players].
     pub kills: BTreeMap<String, i32>,
 
-    pub game_reported_scores: Option<BTreeMap<String, i32>>,
+    /// extended / optional fields
+    //////////////////////////////
 
+    /// The number of casualties caused by each reasons
+    pub means_of_death: Option<BTreeMap<String, i32>>,
+    /// The score the server reports through `score` events
+    pub game_reported_scores: Option<BTreeMap<String, i32>>,
     /// Vector of users who disconnected before the game ended,
     /// in the form (id, nick, frags)
     pub disconnected_players: Option<Vec<(u32, String, i32)>>

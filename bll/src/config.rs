@@ -29,6 +29,7 @@ pub struct Config {
 /// to aggregate into a summary to present to the user
 #[derive(Debug, Eq, Hash, PartialEq)]
 pub enum EventAnalyserOperations {
+    MeansOfDeath,
     Kills,
     PlayerIdsAndNickNamesResolutions,
     GameReportedScores,

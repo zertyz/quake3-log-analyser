@@ -52,6 +52,8 @@ pub enum LogicEvent {
     RenamePlayer { quake3_event_id: u32, client_id: u32, old_name: String, new_name: String },
     /// An existing player quit the game
     DeletePlayer { quake3_event_id: u32, client_id: u32, name: String },
+    /// Reports the cause of the last death
+    MeanOfDeath { quake3_event_id: u32, mean_of_death: String },
     /// A player killed someone
     IncFrags { quake3_event_id: u32, client_id: u32, name: String },
     /// The player committed suicide (was killed by '<world>')
@@ -63,6 +65,7 @@ pub enum LogicEvent {
     /// A game has ended without reaching any of the limits -- most likely due to an operator command
     GameEndedManually { quake3_event_id: u32 },
 
+    /// Represents an error on the event processing
     EventModelViolation { quake3_event_id: u32, violation: EventModelViolations },
 }
 
@@ -78,6 +81,7 @@ impl LogicEvent {
             LogicEvent::AddPlayer           { quake3_event_id, .. } |
             LogicEvent::RenamePlayer        { quake3_event_id, .. } |
             LogicEvent::DeletePlayer        { quake3_event_id, .. } |
+            LogicEvent::MeanOfDeath { quake3_event_id, .. } |
             LogicEvent::IncFrags            { quake3_event_id, .. } |
             LogicEvent::DecFrags            { quake3_event_id, .. } |
             LogicEvent::ReportedScore       { quake3_event_id, .. } |

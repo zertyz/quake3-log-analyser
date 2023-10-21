@@ -24,16 +24,21 @@ pub fn to_json(config: &Config, games_summary_stream: GamesSummary, mut writer: 
     let games_summary_stream = futures::executor::block_on_stream(games_summary_stream);
     write("{\n")?;
     for summary_result in games_summary_stream {
-        if (game_id > 1) {
-            write(",\n")?;
-        }
         match summary_result {
             Ok(summary) => {
+                if (game_id > 1) {
+                    write(",\n")?;
+                }
                 write(&format!("  \"game_{game_id}\": {{\n"))?;
                 write(&format!("    \"total_kills\": {},\n", summary.total_kills))?;
                 write(&format!("    \"players\": {},\n", serialize_set(&summary.players)))?;
                 write(&format!("    \"kills\": {}", serialize_map("    ", &summary.kills)))?;
 
+                // extended/optional field: means_of_death
+                if let Some(means_of_death) = summary.means_of_death {
+                    write(",\n")?;
+                    write(&format!("    \"kills_by_means\": {}", serialize_map("    ", &means_of_death)))?;
+                }
                 // extended/optional field: game_reported_scores
                 if let Some(game_reported_scores) = summary.game_reported_scores {
                     write(",\n")?;
@@ -134,10 +139,11 @@ mod tests {
                 total_kills: 45,
                 players: BTreeSet::from(["Dono da bola".to_owned(), "Isgalamido".to_owned(), "Zeh".to_owned()]),
                 kills: BTreeMap::from([
-                    ("Dono da bola".to_owned(), 5,),
-                    ("Isgalamido".to_owned(), 18,),
+                    ("Dono da bola".to_owned(), 5),
+                    ("Isgalamido".to_owned(), 18),
                     ("Zeh".to_owned(), 20),
                 ]),
+                means_of_death: None,
                 game_reported_scores: None,
                 disconnected_players: None,
             }
@@ -152,13 +158,18 @@ mod tests {
                 total_kills: 45,
                 players: BTreeSet::from(["Dono da bola".to_owned(), "Isgalamido".to_owned(), "Zeh".to_owned()]),
                 kills: BTreeMap::from([
-                    ("Dono da bola".to_owned(), 5,),
-                    ("Isgalamido".to_owned(), 18,),
+                    ("Dono da bola".to_owned(), 5),
+                    ("Isgalamido".to_owned(), 18),
                     ("Zeh".to_owned(), 20),
                 ]),
+                means_of_death: Some(BTreeMap::from([
+                    ("MOD_BRUTE_FORCE".to_owned(), 3),
+                    ("MOD_PUNCH".to_owned(), 8),
+                    ("MOD_NAIL_IN_THE_HEAD".to_owned(), 3),
+                ])),
                 game_reported_scores: Some(BTreeMap::from([
-                    ("Dono da bola".to_owned(), 5,),
-                    ("Isgalamido".to_owned(), 18,),
+                    ("Dono da bola".to_owned(), 5),
+                    ("Isgalamido".to_owned(), 18),
                     ("Zeh".to_owned(), 20),
                 ])),
                 disconnected_players: Some(vec![
@@ -177,10 +188,11 @@ mod tests {
                 total_kills: 45,
                 players: BTreeSet::from(["Dono da bola".to_owned(), "Isgalamido".to_owned(), "Zeh".to_owned()]),
                 kills: BTreeMap::from([
-                    ("Dono da bola".to_owned(), 5,),
-                    ("Isgalamido".to_owned(), 18,),
+                    ("Dono da bola".to_owned(), 5),
+                    ("Isgalamido".to_owned(), 18),
                     ("Zeh".to_owned(), 20),
                 ]),
+                means_of_death: None,
                 game_reported_scores: None,
                 disconnected_players: None,
             },
@@ -188,10 +200,11 @@ mod tests {
                 total_kills: 45,
                 players: BTreeSet::from(["Dono da bola".to_owned(), "Isgalamido".to_owned(), "Zeh".to_owned()]),
                 kills: BTreeMap::from([
-                    ("Dono da bola".to_owned(), 5,),
-                    ("Isgalamido".to_owned(), 18,),
+                    ("Dono da bola".to_owned(), 5),
+                    ("Isgalamido".to_owned(), 18),
                     ("Zeh".to_owned(), 20),
                 ]),
+                means_of_death: None,
                 game_reported_scores: None,
                 disconnected_players: None,
             }

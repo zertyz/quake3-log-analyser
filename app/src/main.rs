@@ -62,6 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stop_on_event_model_violations: command_line_options.pedantic,
         processor_pipeline: if command_line_options.extended {
             HashSet::from([
+                bll::EventAnalyserOperations::MeansOfDeath,
                 bll::EventAnalyserOperations::Kills,
                 bll::EventAnalyserOperations::PlayerIdsAndNickNamesResolutions,
                 bll::EventAnalyserOperations::GameReportedScores,
