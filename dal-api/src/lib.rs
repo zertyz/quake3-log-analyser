@@ -1,3 +1,5 @@
+//! Include README
+
 mod config;
 pub use config::*;
 
@@ -14,7 +16,6 @@ use futures::Stream;
 /// Feed for Quake 3 server events
 pub trait Quake3ServerEvents {
 
-
-    /// Consumes this object, returning a `Stream` which yields Quake 3 server events
-    fn events_stream(self) -> Result<Pin<Box<dyn Stream<Item=Quake3Events<'static>>>>>;
+    /// Consumes this object, returning a `Stream` which yields our version of the [Quake3Events]
+    fn events_stream(self: Pin<Box<Self>>) -> Result<Pin<Box<dyn Stream<Item=Quake3Events<'static>>>>>;
 }

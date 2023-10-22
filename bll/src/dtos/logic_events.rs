@@ -1,4 +1,4 @@
-//! Resting place for [AnalysedEvent] & friends
+//! Resting place for [LogicEvents], [CompositeEvent] & friends
 
 use std::borrow::Cow;
 use model::{
@@ -13,7 +13,7 @@ use model::{
 #[derive(Debug)]
 pub enum CompositeEvent<'a> {
     GameEvent(Quake3Events<'a>),
-    LogicEvent(LogicEvent<'a>)
+    LogicEvent(LogicEvents<'a>)
 }
 
 impl CompositeEvent<'_> {
@@ -35,7 +35,7 @@ impl CompositeEvent<'_> {
 
 /// The events the main logic algorithms generates for the composable business logics to process
 #[derive(Debug)]
-pub enum LogicEvent<'a> {
+pub enum LogicEvents<'a> {
     /// A game has started
     NewGame { quake3_event_id: u32 },
     /// A new player joined the game
@@ -61,29 +61,30 @@ pub enum LogicEvent<'a> {
     EventModelViolation { quake3_event_id: u32, violation: EventModelViolations<'a> },
 }
 
-impl LogicEvent<'_> {
+impl LogicEvents<'_> {
 
     pub fn is_err(&self) -> bool {
-        matches!(self, LogicEvent::EventModelViolation {..})
+        matches!(self, LogicEvents::EventModelViolation {..})
     }
 
     pub fn quake3_event_id(&self) -> u32 {
         match self {
-            LogicEvent::NewGame             { quake3_event_id, .. } |
-            LogicEvent::AddPlayer           { quake3_event_id, .. } |
-            LogicEvent::RenamePlayer        { quake3_event_id, .. } |
-            LogicEvent::DeletePlayer        { quake3_event_id, .. } |
-            LogicEvent::MeanOfDeath { quake3_event_id, .. } |
-            LogicEvent::IncFrags            { quake3_event_id, .. } |
-            LogicEvent::DecFrags            { quake3_event_id, .. } |
-            LogicEvent::ReportedScore       { quake3_event_id, .. } |
-            LogicEvent::GameEndedGracefully { quake3_event_id, .. } |
-            LogicEvent::GameEndedManually   { quake3_event_id, .. } |
-            LogicEvent::EventModelViolation { quake3_event_id, .. } => *quake3_event_id,
+            LogicEvents::NewGame             { quake3_event_id, .. } |
+            LogicEvents::AddPlayer           { quake3_event_id, .. } |
+            LogicEvents::RenamePlayer        { quake3_event_id, .. } |
+            LogicEvents::DeletePlayer        { quake3_event_id, .. } |
+            LogicEvents::MeanOfDeath { quake3_event_id, .. } |
+            LogicEvents::IncFrags            { quake3_event_id, .. } |
+            LogicEvents::DecFrags            { quake3_event_id, .. } |
+            LogicEvents::ReportedScore       { quake3_event_id, .. } |
+            LogicEvents::GameEndedGracefully { quake3_event_id, .. } |
+            LogicEvents::GameEndedManually   { quake3_event_id, .. } |
+            LogicEvents::EventModelViolation { quake3_event_id, .. } => *quake3_event_id,
         }
     }
 }
 
+/// Errors that may come after analysing [Quake3Events]
 #[derive(Debug)]
 pub enum EventModelViolations<'a> {
     /// Occurs when two `InitGame` events were received before a `ShutdownGame`

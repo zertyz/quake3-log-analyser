@@ -27,10 +27,10 @@
 //!
 //! Interesting findings:
 //!   1) By running with --verbose on the original log file, we get:
-//!      2023-10-20T19:06:30.106Z WARN  [bll::summary] Failed to process event #97: `LogParsingError` when processing log file '/home/luiz/tmp/quake3-log-analyser/bll/tests/resources/qgames_permissive.log' at line 97: EventParsingError { event_name: " 0", event_parsing_error: UnknownEventName }
+//!      2023-10-20T19:06:30.106Z WARN  [bll::summary_logic] Failed to process event #97: `LogParsingError` when processing log file '/home/luiz/tmp/quake3-log-analyser/bll/tests/resources/qgames_permissive.log' at line 97: EventParsingError { event_name: " 0", event_parsing_error: UnknownEventName }
 //!      2023-10-20T19:06:30.106Z WARN  [presentation] presentation: to_json(): Error in `games_summary_stream` while processing game_id 2: Event #98: violated the event model: DoubleInit
 //!   2) By adding the --extended flag, the messages grow to:
-//!      2023-10-20T19:06:44.391Z WARN  [bll::summary] Failed to process event #97: `LogParsingError` when processing log file '/home/luiz/tmp/quake3-log-analyser/bll/tests/resources/qgames_permissive.log' at line 97: EventParsingError { event_name: " 0", event_parsing_error: UnknownEventName }
+//!      2023-10-20T19:06:44.391Z WARN  [bll::summary_logic] Failed to process event #97: `LogParsingError` when processing log file '/home/luiz/tmp/quake3-log-analyser/bll/tests/resources/qgames_permissive.log' at line 97: EventParsingError { event_name: " 0", event_parsing_error: UnknownEventName }
 //!      2023-10-20T19:06:44.391Z WARN  [presentation] presentation: to_json(): Error in `games_summary_stream` while processing game_id 2: Event #98: violated the event model: DoubleInit
 //!      2023-10-20T19:06:44.391Z WARN  [presentation] presentation: to_json(): Error in `games_summary_stream` while processing game_id 3: Event #99: violated the event model: DoubleConnect
 //!      2023-10-20T19:06:44.391Z WARN  [presentation] presentation: to_json(): Error in `games_summary_stream` while processing game_id 4: Event #115: Player id: 0, name: "Isgalamido" is already registered
@@ -39,6 +39,7 @@
 
 mod command_line;
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::io::BufWriter;
 use std::sync::Arc;
@@ -53,9 +54,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let command_line_options = command_line::parse_from_args();
 
-    let dal_config = dal_api::Config {
-        ..dal_api::Config::default()
+    let dal_implementation = match command_line_options.log_file {
+        Some(log_file) => dal_api::Quake3ServerEventsImplementations::SyncLogFileReader(dal_api::FileReaderInfo { log_file_path: Cow::Owned(log_file) }),
+        None => dal_api::Quake3ServerEventsImplementations::StdinReader,
     };
+    let dal_config = Arc::new(dal_api::Config {
+        ..dal_api::Config::default()
+    });
     let logic_config = bll::Config {
         log_issues: command_line_options.verbose,
         stop_on_feed_errors: command_line_options.pedantic,
@@ -82,8 +87,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let presentation_writer = BufWriter::with_capacity(1024*1024, std::io::stdout());
 
 
-    let log_dao = dal::factory::instantiate_log_dao(&dal_config, command_line_options.log_file.as_ref().unwrap());
-    let summaries_stream = bll::summary::summarize_games(Arc::new(logic_config), log_dao)?;
+    let log_dao = dal::factory::instantiate_log_dao(dal_implementation, dal_config);
+    let summaries_stream = bll::summary_logic::summarize_games(Arc::new(logic_config), log_dao)?;
     presentation::to_json(&presentation_config, summaries_stream, presentation_writer)?;
 
     Ok(())

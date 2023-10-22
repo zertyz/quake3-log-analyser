@@ -267,6 +267,7 @@ version = "0.1.0"
 dependencies = [
  "dal-api",
  "futures",
+ "log",
  "model",
  "quake3-server-log",
 ]
