@@ -1,4 +1,4 @@
-//! Read from docs
+//! #![doc = include_str!("../README.md")]
 
 mod config;
 pub use config::*;

@@ -1,4 +1,4 @@
-//! Include README.md
+//! #![doc = include_str!("../README.md")]
 
 pub mod factory;
 pub mod async_file_reader;
