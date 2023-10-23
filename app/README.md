@@ -28,10 +28,15 @@ Explore some execution options:
  - ./target/release/app -verbose  --log-file '<path_to_quake3_log_file>'      # continues on any non-fatal errors or inconsistencies in the events, but outputs them to stderr
 
 To prove this application works with Streams of data of undefined size, run in bash:
+```nocompile
  for i in {0..1000}; do cat 'bll/tests/resources/qgames_permissive.log'; done | time -v ./target/release/app --extended >/dev/null
+```
+
 
 To get the number of log lines from above, for lines per second calculation:
+```nocompile
  for i in {0..1000}; do cat 'bll/tests/resources/qgames_permissive.log'; done | wc -l
+```
 
 Re-run the benchmark, this time without the extended logic extensions -- showing our logic pattern has zero-cost abstractions:
  for i in {0..1000}; do cat 'bll/tests/resources/qgames_permissive.log'; done | time -v ./target/release/app >/dev/null

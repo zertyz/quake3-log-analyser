@@ -77,7 +77,7 @@ Last but not least, automated testing is not only heavily used, but it guided th
 Thanks to Rust's memory safety features, the risk of vulnerabilities such as buffer overflow attacks is minimized. Additionally, the use of `Stream`s ensures that large log files won't exhaust system memory. The remaining concern, not addressed in this version, is related to the potential for large numbers of players and long nicknames to exhaust RAM due to hash table storage. Implementing limits on these aspects could be easily done in both the BLL and the log parser.
 
 
-# Performance Concerns
+## Performance Concerns
 
 The current version of the project is single-threaded and synchronous. Although asynchronous programming is enabled through the use of `Streams`, it has not yet been implemented. Future work could explore the benefits of multi-threading, either synchronous or asynchronous (using Tokio), to improve processing speed.
 
