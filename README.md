@@ -11,6 +11,11 @@ Please, use, for testing:
 cargo test
 ```
 
+this for docs generation:
+```
+cargo doc --no-deps --document-private-items
+```
+
 and, for building:
 ```
 RUSTFLAGS="-C target-cpu=native" cargo build --release

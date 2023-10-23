@@ -3,7 +3,7 @@
 
 use common::types::Result;
 use model::quake3_events::Quake3Events;
-use quake3_server_log::types::Quake3FullEvents;
+use quake3_server_events::types::Quake3FullEvents;
 use std::future;
 use futures::{Stream, StreamExt};
 

@@ -5,7 +5,7 @@ use crate::events_translation::translate_quake3_events;
 use common::types::Result;
 use model::quake3_events::Quake3Events;
 use dal_api::{Config, Quake3ServerEvents};
-use quake3_server_log::deserializer_logs::deserialize_log_line;
+use quake3_server_events::deserializer_logs::deserialize_log_line;
 use std::{
     pin::Pin,
     sync::Arc,

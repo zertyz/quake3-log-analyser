@@ -60,6 +60,10 @@ use std::{
 };
 
 
+/// Buffer to allow efficient output operations
+const OUTPUT_BUFFER_SIZE: usize = 1024 * 1024;
+
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // start the logger
@@ -98,7 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stop_on_errors: command_line_options.pedantic,
         ..presentation::Config::default()
     };
-    let presentation_writer = BufWriter::with_capacity(1024*1024, std::io::stdout());
+    let presentation_writer = BufWriter::with_capacity(OUTPUT_BUFFER_SIZE, std::io::stdout());
 
 
     let log_dao = dal::factory::instantiate_log_dao(dal_implementation, dal_config);

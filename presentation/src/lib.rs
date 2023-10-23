@@ -1,8 +1,4 @@
-//! #![doc = include_str!("../README.md")]
-//! 
-//! Small crate to be a central point for presentation requisites.
-//!
-//! Simply shows the `Stream` of GameMatches as a Json
+#![doc = include_str!("../README.md")]
 
 mod config;
 pub use config::Config;
