@@ -8,8 +8,7 @@ use dal_api::{
 use std::sync::Arc;
 
 
-/// Instantiates a Data Access Object (dao) able work on the contents of `log_locator`,
-/// pointing to a Quake3 server log file, from which a [Quake3ServerEvents] is returned.
+/// Instantiates a Data Access Object (dao) able retrieve data from the given `implementation` source
 pub fn instantiate_log_dao(implemetation: Quake3ServerEventsImplementations<'static>, config: Arc<Config>) -> Box<dyn Quake3ServerEvents + 'static> {
     match implemetation {
         Quake3ServerEventsImplementations::StdinReader => crate::stdin_reader::Quake3LogFileStdinReader::new(config),

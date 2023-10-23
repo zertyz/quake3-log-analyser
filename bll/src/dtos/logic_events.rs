@@ -66,6 +66,8 @@ impl LogicEvents<'_> {
         matches!(self, LogicEvents::EventModelViolation {..})
     }
 
+    /// Returns the `event_id` of the variant of [Quake3Events] associated to this LogicEvents's variant
+    /// -- which is, possibly, mapped to a line number from a log file.
     pub fn quake3_event_id(&self) -> u32 {
         match self {
             LogicEvents::NewGame             { quake3_event_id, .. } |
@@ -86,17 +88,18 @@ impl LogicEvents<'_> {
 /// Errors that may come after analysing [Quake3Events]
 #[derive(Debug)]
 pub enum EventModelViolations<'a> {
-    /// Occurs when two `InitGame` events were received before a `ShutdownGame`
+    /// Occurs when two [Quake3Events::InitGame] events were received before a [Quake3Events::ShutdownGame]
     DoubleInit,
-    /// Occurs when two `ClientConnect` events were received (for the same client_id) before a `ClientDisconnect`
+    /// Occurs when two [[Quake3Events::ClientConnect]] events were received (for the same client_id) before a [Quake3Events::ClientDisconnect]
     DoubleConnect,
-    /// Occurs when a game event happens outside of a game match (no `InitGame` was issued)
+    /// Occurs when a game event happens outside of a game match (no [Quake3Events::InitGame] was issued)
     GameNotStarted,
-    /// Occurs when a `ClientUserinfoChanged` or `ClientDisconnect` event happens before a `ClientConnect`, for the given client_id
+    /// Occurs when a [Quake3Events::ClientUserinfoChanged] or [Quake3Events::ClientDisconnect] event happens before a [Quake3Events::ClientConnect], for the given client_id
     ClientNotConnected {
         id: u32,
         name: Cow<'a, str>,
     },
+    /// Occurs when some game events report a name for a player, but others report other -- before a [Quake3Events::ClientUserinfoChanged] in between them
     DiscrepantPlayerName {
         id: u32,
         local_name: Cow<'a, str>,
