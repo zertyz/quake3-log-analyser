@@ -4,8 +4,8 @@ mod config;
 pub use config::*;
 
 
+use common::types::Result;
 use model::{
-    types::Result,
     quake3_events::Quake3Events,
 };
 use std::fmt::Debug;
@@ -17,5 +17,5 @@ use futures::Stream;
 pub trait Quake3ServerEvents {
 
     /// Consumes this object, returning a `Stream` which yields our version of the [Quake3Events]
-    fn events_stream(self: Pin<Box<Self>>) -> Result<Pin<Box<dyn Stream<Item=Quake3Events<'static>>>>>;
+    fn events_stream(self: Box<Self>) -> Result<Pin<Box<dyn Stream<Item=Quake3Events<'static>>>>>;
 }

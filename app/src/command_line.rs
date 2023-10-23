@@ -43,6 +43,6 @@ pub fn parse_from_args() -> CommandLineOptions {
 }
 
 fn fill_in_defaults(mut command_line_options: CommandLineOptions) -> CommandLineOptions {
-    command_line_options.log_file.get_or_insert_with(|| "./qgames.log".to_owned());
+    // no defaults to fill in yet
     command_line_options
 }

@@ -1,8 +1,8 @@
 //! Resting place for [Quake3LogFileSyncReader]
 
 
+use common::types::Result;
 use model::{
-    types::Result,
     quake3_events::Quake3Events,
 };
 use dal_api::{Config, FileReaderInfo, Quake3ServerEvents};
@@ -18,6 +18,7 @@ use std::task::Poll;
 use futures::{FutureExt, Stream, stream, StreamExt};
 use log::trace;
 use crate::events_translation::translate_quake3_events;
+use crate::sync_reader::Quake3LogSyncReader;
 
 
 /// Size for buffering IO (the larger, more RAM is used, but fewer system calls / context switches / hardware requests are required)
@@ -32,8 +33,8 @@ pub struct Quake3LogFileSyncReader<'a> {
 
 impl<'a> Quake3LogFileSyncReader<'a> {
 
-    pub fn new(config: Arc<Config>, params: FileReaderInfo<'a>) -> Pin<Box<Self>> {
-        Box::pin(Self {
+    pub fn new(config: Arc<Config>, params: FileReaderInfo<'a>) -> Box<Self> {
+        Box::new(Self {
             config,
             params,
         })
@@ -43,38 +44,12 @@ impl<'a> Quake3LogFileSyncReader<'a> {
 
 impl Quake3ServerEvents for Quake3LogFileSyncReader<'static> {
 
-    fn events_stream(self: Pin<Box<Self>>) -> Result<Pin<Box<dyn Stream<Item=Quake3Events<'static>>>>> {
+    fn events_stream(self: Box<Self>) -> Result<Pin<Box<dyn Stream<Item=Quake3Events<'static>>>>> {
         let file = File::open(&self.params.log_file_path.as_ref())
             .map_err(|err| format!("Couldn't open Quake3 Server log file '{}' for reading: {err}", self.params.log_file_path))?;
         let reader = BufReader::with_capacity(BUFFER_SIZE, file);
-        let mut lines_iter = reader.lines().enumerate();
-
-        let yield_item = |event| Poll::Ready(Some(Ok(event)));
-        let yield_error = |err| Poll::Ready(Some(Err(Box::from(err))));
-        let end_of_stream = || Poll::Ready(None);
-
-        let debug = self.config.debug;
-        let stream = stream::poll_fn(move |_|
-            lines_iter.next()
-                .map_or_else(end_of_stream,
-                             |(line_number, line_result)| line_result
-                                 .map_err(|read_err| format!("IO read error when processing log file '{}' at line {}: {read_err:?}", self.params.log_file_path, line_number+1))
-                                 .map_or_else(yield_error,
-                                              |line| deserialize_log_line(&line)
-                                                     .map_err(|log_parser_err| format!("`LogParsingError` when processing log file '{}' at line {}: {log_parser_err:?}", self.params.log_file_path, line_number+1))
-                                                     .map_or_else(yield_error, yield_item)
-
-                                 )
-                )
-        );
-        let stream = translate_quake3_events(stream);
-        let stream: Pin<Box<dyn Stream<Item=Quake3Events<'static>>>> = if debug {
-            Box::pin(stream
-                .inspect(|yielded_event| trace!("{yielded_event:?}")))
-        } else {
-            Box::pin(stream)
-        };
-        Ok(stream)
+        Quake3LogSyncReader::new(self.config, &self.params.log_file_path, reader)
+            .events_stream()
     }
 
 }

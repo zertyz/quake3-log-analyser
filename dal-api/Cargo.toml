@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 
+common = { path = "../common" }
 model = { path = "../model" }
 quake3-server-log = { path = "../quake3-server-events" }
 

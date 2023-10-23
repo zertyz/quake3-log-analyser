@@ -2,12 +2,12 @@
 //!
 //! See [summarize_games()]
 
-use std::borrow::Cow;
+use common::types::Result;
 use model::{
-    types::Result,
     quake3_events::Quake3Events,
     report::GameMatchSummary,
 };
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::future;
 use std::pin::Pin;
@@ -25,7 +25,7 @@ use crate::dtos::{LogicEvents, CompositeEvent, EventModelViolations};
 ///   1) [Quake3Events] events come in in a `Stream` and [GameMatchSummary] events goes out, also in a `Stream` -- with unlimited processing power;
 ///   2) Logic processors can be enabled / disabled by adding `Stream` operations -- only pay for what you use
 ///   3) The `Stream` operations are nicely packed into their own functions, enabling an easy selection through [Config::processor_pipeline]
-pub fn summarize_games<IntoArcConfig: Into<Arc<Config>>>(config: IntoArcConfig, log_dao: Pin<Box<dyn Quake3ServerEvents>>) -> Result<GamesSummary> {
+pub fn summarize_games<IntoArcConfig: Into<Arc<Config>>>(config: IntoArcConfig, log_dao: Box<dyn Quake3ServerEvents>) -> Result<GamesSummary> {
     let config = config.into();
     let stream = compose(&config, log_dao)?;
     if config.processor_pipeline == HashSet::from([EventAnalyserOperations::Kills]) {
@@ -52,7 +52,7 @@ pub fn summarize_games<IntoArcConfig: Into<Arc<Config>>>(config: IntoArcConfig, 
 ///   3. many pipeline processing functions, such as [means_of_death()], [kills()], [player_ids_and_nicknames_resolutions()] and [game_reported_scores()] -- then
 ///   4.  [summarize()], then
 ///   5. `Stream` of [GameMatchSummary]
-fn compose<'a>(config: &Arc<Config>, log_dao: Pin<Box<dyn Quake3ServerEvents>>) -> Result<impl Stream<Item=CompositeEvent<'a>>> {
+fn compose<'a>(config: &Arc<Config>, log_dao: Box<dyn Quake3ServerEvents>) -> Result<impl Stream<Item=CompositeEvent<'a>>> {
 
     let config = config.clone();
 
@@ -951,14 +951,13 @@ mod tests {
     }
     impl<'a> TestDAL<'a> {
         /// Creates a new mock DAL for tests, yielding the all the `events`
-        pub fn new(events: Vec<Quake3Events<'a>>) -> Pin<Box<Self>> {
-            Box::pin(Self { events })
+        pub fn new(events: Vec<Quake3Events<'a>>) -> Box<Self> {
+            Box::new(Self { events })
         }
     }
     impl Quake3ServerEvents for TestDAL<'static> {
-        fn events_stream(mut self: Pin<Box<Self>>) -> Result<Pin<Box<dyn Stream<Item=Quake3Events<'static>>>>> {
-            let events = self.events.drain(..).collect::<Vec<_>>();
-            let stream = stream::iter(events)
+        fn events_stream(mut self: Box<Self>) -> Result<Pin<Box<dyn Stream<Item=Quake3Events<'static>>>>> {
+            let stream = stream::iter(self.events)
                 .map(|event| event);
             Ok(Box::pin(stream))
         }

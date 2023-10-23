@@ -1,12 +1,12 @@
 //! Contains utilities for translating the outputs of the `quake3-server-events`
 //! library into our simplified models for the events and info we care about
 
-use std::future;
+use common::types::Result;
 use model::{
-    types::Result,
     quake3_events::Quake3Events,
 };
 use quake3_server_log::types::Quake3FullEvents;
+use std::future;
 use futures::{Stream, StreamExt};
 
 
