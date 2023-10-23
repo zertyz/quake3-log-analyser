@@ -26,8 +26,8 @@ use log::warn;
 
 
 /// Here you'll find an event-based, decoupled and zero-cost-abstraction strategy for applying business logic rules & requisites:
-///   1) [Quake3Events] events come in in a `Stream` and [GameMatchSummary] events goes out, also in a `Stream` -- with unlimited processing power;
-///   2) Logic processors can be enabled / disabled by adding `Stream` operations -- only pay for what you use
+///   1) [Quake3Events] events come in in a `Stream` and [GameMatchSummary] events go out, also in a `Stream` -- able to process data regardless of their size;
+///   2) Logic processors can be enabled / disabled by adding `Stream` operations -- "only pay for what you use"
 ///   3) The `Stream` operations are nicely packed into their own functions, enabling an easy selection through [Config::processor_pipeline]
 pub struct SummaryLogic {
     config: Arc<Config>,
@@ -139,8 +139,8 @@ impl SummaryLogic {
     }
 
     /// Logic for extracting the death causes statistics from the [Quake3Events::Kill] events.\
-    /// Must be used before [kills()], because (unlike the mentioned processor), this here does not consume
-    /// the events.
+    /// Must be used before [kills()], because (unlike the mentioned processor), the one here does not consume
+    /// the [Quake3Events::Kill] events.
     fn means_of_death<'a>(&self, stream: impl Stream<Item=CompositeEvent<'a>>) -> impl Stream<Item=CompositeEvent<'a>> {
 
         stream
@@ -169,7 +169,7 @@ impl SummaryLogic {
 
     }
 
-    /// Consumes [Quake3Events::Kill] events, mapping them to [LogicEvents::IncFrags] and [LogicEvents::DecFrags]
+    /// Consumes [Quake3Events::Kill] events, mapping them to [LogicEvents::IncFrags] or [LogicEvents::DecFrags]
     /// according to the "frags rules":
     ///   1) killers get a frag up;
     ///   2) if killed by '<world>', the victim gets a frag down.
@@ -203,6 +203,9 @@ impl SummaryLogic {
     }
 
     /// Logic for resolving client ids & client names & validating the ones resolved by the game.\
+    /// Also, consumes [Quake3Events::ClientConnect], [Quake3Events::ClientUserinfoChanged] and [Quake3Events::ClientDisconnect]
+    /// to produced their enriched versions [LogicEvent::AddPlayer], [LogicEvent::RenamePlayer] & [LogicEvent::DeletePlayer],
+    /// containing both the `client_id` and client name.
     /// NOTE: should be applied after [kills()]
     fn player_ids_and_nicknames_resolutions<'a>(&self, stream: impl Stream<Item=CompositeEvent<'a>>) -> impl Stream<Item=CompositeEvent<'a>> {
 

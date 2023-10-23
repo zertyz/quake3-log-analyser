@@ -2,7 +2,7 @@
 //!
 //! ================================================================
 //! Generates a stream of Game Matches from Quake3 Server log files.
-//! By default, reads from the file at './qgames.log'
+//! By default, reads from stdin unless '--log-file' is used
 //! ================================================================
 //!
 //! USAGE:
