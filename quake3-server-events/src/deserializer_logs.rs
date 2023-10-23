@@ -1,14 +1,6 @@
 //! Common functions for parsing of Quake 3 Log files.
 //!
-//! Here you will see a mix of solutions for the parsing:
-//!  1) Regular expressions for the general log line parsing, extracting time, event name and data infos from it,
-//!  2) algorithms in `std::str` for the specific data parsing
-//!
-//! This eclectic approach was picked up to achieve a good balance between:
-//!  1) simplicity -- a single Regex + simple std::str calls would be enough to parse almost all data
-//!  2) speed -- for the complex data formats, the pattern would be so simple that using regex would be overkill: `str::split*()` were used instead
-//!
-//! See also the `benches/quake3_server_event_parsing.rs` for the study of trade-ofs between Regex & `str::split*()`
+//! See `benches/quake3_server_event_parsing.rs` for the study of trade-offs between Regex & `str::split*()`
 
 use crate::types::Quake3FullEvents;
 use std::{
@@ -18,8 +10,8 @@ use std::{
 };
 
 
-/// Transforms raw Quake 3 Log lines into the appropriate [model::quake3_logs::LogEvent] variants.\
-/// On error, returns a String describing the problem
+/// Transforms raw Quake 3 Log lines into the appropriate [model::quake3_logs::LogEvent] variants,
+/// returning any errors that prevents the correct parsing.
 pub fn deserialize_log_line<'a>(log_line: &str) -> Result<Quake3FullEvents<'a>, LogParsingError> {
     let log_line = log_line.trim_start_matches(" ");
     if log_line.len() == 0 {
@@ -37,6 +29,7 @@ pub fn deserialize_log_line<'a>(log_line: &str) -> Result<Quake3FullEvents<'a>, 
         .map_err(|event_parsing_error| LogParsingError::EventParsingError { event_name: event_name.to_string(), event_parsing_error })
 }
 
+/// The errors that could prevent the parsing of a log line
 #[derive(Debug, PartialEq)]
 pub enum LogParsingError {
     EmptyLine,
@@ -46,6 +39,7 @@ pub enum LogParsingError {
     EventParsingError { event_name: String, event_parsing_error: EventParsingError },
 }
 
+/// The errors that could preventing the parsing of an event in a log line
 #[derive(Debug, PartialEq)]
 pub enum EventParsingError {
     UnknownEventName,
