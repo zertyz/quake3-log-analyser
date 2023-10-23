@@ -37,6 +37,7 @@ name = "app"
 version = "0.1.0"
 dependencies = [
  "bll",
+ "bll-api",
  "dal",
  "dal-api",
  "model",
@@ -80,6 +81,7 @@ checksum = "327762f6e5a765692301e5bb513e0d9fef63be86bbc14528052b1cd3e6f03e07"
 name = "bll"
 version = "0.1.0"
 dependencies = [
+ "bll-api",
  "common",
  "dal",
  "dal-api",
@@ -92,6 +94,11 @@ dependencies = [
 [[package]]
 name = "bll-api"
 version = "0.1.0"
+dependencies = [
+ "common",
+ "dal-api",
+ "model",
+]
 
 [[package]]
 name = "bumpalo"

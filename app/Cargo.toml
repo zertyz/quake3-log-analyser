@@ -9,6 +9,7 @@ edition = "2021"
 model = { path = "../model" }
 dal-api = { path = "../dal-api" }
 dal = { path = "../dal" }
+bll-api = { path = "../bll-api" }
 bll = { path = "../bll" }
 presentation = { path = "../presentation" }
 

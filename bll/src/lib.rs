@@ -1,7 +1,6 @@
 //! Import from README.md
 
-mod config;
-pub use config::*;
+mod summary_logic;
+pub use summary_logic::*;
 
-pub mod summary_logic;
 pub mod dtos;

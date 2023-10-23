@@ -39,6 +39,7 @@
 
 mod command_line;
 
+use bll_api::SummaryLogicApi;
 use std::{
     borrow::Cow,
     collections::HashSet,
@@ -61,23 +62,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dal_config = Arc::new(dal_api::Config {
         ..dal_api::Config::default()
     });
-    let logic_config = bll::Config {
+    let logic_config = bll_api::Config {
         log_issues: command_line_options.verbose,
         stop_on_feed_errors: command_line_options.pedantic,
         stop_on_event_model_violations: command_line_options.pedantic,
         processor_pipeline: if command_line_options.extended {
             HashSet::from([
-                bll::EventAnalyserOperations::MeansOfDeath,
-                bll::EventAnalyserOperations::Kills,
-                bll::EventAnalyserOperations::PlayerIdsAndNickNamesResolutions,
-                bll::EventAnalyserOperations::GameReportedScores,
+                bll_api::EventAnalyserOperations::MeansOfDeath,
+                bll_api::EventAnalyserOperations::Kills,
+                bll_api::EventAnalyserOperations::PlayerIdsAndNickNamesResolutions,
+                bll_api::EventAnalyserOperations::GameReportedScores,
             ])
         } else {
             HashSet::from([
-                bll::EventAnalyserOperations::Kills,
+                bll_api::EventAnalyserOperations::Kills,
             ])
         },
-        ..bll::Config::default()
+        ..bll_api::Config::default()
     };
     let presentation_config = presentation::Config {
         log_errors: command_line_options.verbose,
@@ -88,7 +89,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 
     let log_dao = dal::factory::instantiate_log_dao(dal_implementation, dal_config);
-    let summaries_stream = bll::summary_logic::summarize_games(Arc::new(logic_config), log_dao)?;
+    let logic = bll::SummaryLogic::new(logic_config);
+    let summaries_stream = logic.summarize_games(log_dao)?;
     presentation::to_json(&presentation_config, summaries_stream, presentation_writer)?;
 
     Ok(())
