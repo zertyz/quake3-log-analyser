@@ -8,7 +8,7 @@ use model::{
 use dal_api::{Config, FileReaderInfo, Quake3ServerEvents};
 use quake3_server_log::{
     types::Quake3FullEvents,
-    deserializer::{deserialize_log_line, LogParsingError},
+    deserializer_logs::{deserialize_log_line, LogParsingError},
 };
 use std::fs::File;
 use std::io::{BufRead, BufReader};

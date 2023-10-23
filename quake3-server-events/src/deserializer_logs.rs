@@ -24,17 +24,13 @@ pub fn deserialize_log_line<'a>(log_line: &str) -> Result<Quake3FullEvents<'a>, 
         return Err(LogParsingError::EmptyLine)
     }
 
-    let Some( (time, event_name_and_data) ) = log_line.split_once(" ")
-        else {
-            return Err(LogParsingError::UnrecognizedLineFormat)
-        };
+    let (time, event_name_and_data) = log_line.split_once(" ")
+        .map_or(Err(LogParsingError::UnrecognizedLineFormat), Ok)?;
     if event_name_and_data.starts_with("-") {
         return Ok(Quake3FullEvents::Comment)
     }
-    let Some( (event_name, data) ) = event_name_and_data.split_once(":")
-        else {
-            return Err(LogParsingError::UnrecognizedLineFormat)
-        };
+    let (event_name, data) = event_name_and_data.split_once(":")
+        .map_or(Err(LogParsingError::UnrecognizedLineFormat), Ok)?;
     from_parts(event_name, data.trim_start_matches(" "))
         .map_err(|event_parsing_error| LogParsingError::EventParsingError { event_name: event_name.to_string(), event_parsing_error })
 }
@@ -78,7 +74,7 @@ fn from_parts<'a>(event_name: &str, data: &str) -> Result<Quake3FullEvents<'a>, 
                 .ok_or_else(|| EventParsingError::UnparseableNumber { key_name: "client id", observed_data: numeric.to_string() })?;
             let map = map_from_kv_data(textual);
             map.get("n")
-                .map(|name| Quake3FullEvents::ClientUserinfoChanged { id, name: Cow::Owned(name.to_owned()) })
+                .map(|name| Quake3FullEvents::ClientUserinfoChanged { id, name: Cow::Owned(name.to_string()) })
                 .ok_or_else(|| EventParsingError::AbsentKey { key_name: "n" })
         },
         "ClientBegin" => {
@@ -162,10 +158,10 @@ fn from_parts<'a>(event_name: &str, data: &str) -> Result<Quake3FullEvents<'a>, 
 }
 
 
-fn map_from_kv_data(data: &str) -> BTreeMap<String, String> {
+fn map_from_kv_data(data: &str) -> BTreeMap<&str, &str> {
     let iter = data.split("\\");
     let kv_iter = iter.clone().zip(iter.skip(1));
-    BTreeMap::from_iter(kv_iter.map(|(k, v)| (k.to_string(), v.to_string())))
+    BTreeMap::from_iter(kv_iter.map(|(k, v)| (k, v)))
 }
 
 fn number_from<T: FromStr>(number: &str) -> Option<T> {

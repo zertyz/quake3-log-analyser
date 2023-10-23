@@ -8,6 +8,8 @@ members = [
 
     # the main application
     "app",
+    # the alternative implementation
+    "benchmark",
 
     # components
     "model",

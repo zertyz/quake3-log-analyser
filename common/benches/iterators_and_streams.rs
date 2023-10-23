@@ -1,11 +1,14 @@
-//! Compares the performance of `Iterator`s and `Stream`s when used in a sync context,
-//! to ensure if `Stream` offers acceptable performance in this scenario.
+//! Compares the performance of `Iterator`s and `Stream`s when used in a sync context.
 //!
 //! `Stream`s in sync contexts are used along with `futures::executor::block_on_stream()`.
 //!
 //! # Analysis 2023-10-19
-//!     1) Dismembering the event into its parts is 3200x faster with `str::split_n()` then with `Regex`. It is also simpler. We have a clear winner here.
-//!     2) Due to the astonishing results above, the part 2 wasn't even done: split for the win!
+//!     1) `Iterator`s were measured as 50x faster than `Stream`s -- 1ns and 50ns per iteration, respectively
+//!     2) Even so, `Stream`s are able to iterate 20 millions per second (1e9ns / 50ns = 2e7)
+//!     3) When taking in account the message parsing times (20us, as measured by the `quake3-server-events` crate),
+//!        we find that the time spent in `Stream`s is negligible -- with a 1/100 relation
+//!     4) Due to the higher flexibility allowed by `Stream`s -- allowing async implementations -- this solution is
+//!        justified.
 //!
 
 use criterion::{criterion_group, criterion_main, Criterion, black_box};
@@ -13,26 +16,20 @@ use futures::stream;
 use once_cell::sync::Lazy;
 
 
-/// Some sample log lines
-const ELEMENTS: Lazy<[u32; 4096]> = Lazy::new(|| core::array::from_fn(|i| i as u32));
-
-
 fn bench_u32(criterion: &mut Criterion) {
 
     let mut group = criterion.benchmark_group("Streams and Iterators on u32");
 
     let bench_id = "Iterator";
+    let mut iterator = (0..usize::MAX).into_iter();
     group.bench_function(bench_id, |bencher| bencher.iter(|| {
-        for n in ELEMENTS.into_iter() {
-            black_box(n);
-        }
+        black_box(iterator.next());
     }));
 
     let bench_id = "Stream";
+    let mut stream = futures::executor::block_on_stream(stream::iter((0..usize::MAX).into_iter()));
     group.bench_function(bench_id, |bencher| bencher.iter(|| {
-        for n in futures::executor::block_on_stream(stream::iter(ELEMENTS.into_iter())) {
-            black_box(n);
-        }
+        black_box(stream.next());
     }));
 
     group.finish();
