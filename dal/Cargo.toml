@@ -12,7 +12,7 @@ model = { path = "../model" }
 dal-api = { path = "../dal-api" }
 quake3-server-log = { path = "../quake3-server-events" }
 
+log = "0.4"
+
 # gives us `Stream`
 futures = "0.3"
-log = "0.4.20"
-

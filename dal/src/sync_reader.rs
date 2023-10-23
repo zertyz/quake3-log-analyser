@@ -12,7 +12,7 @@ use std::{
     task::Poll,
 };
 use futures::{Stream, stream, StreamExt};
-use log::trace;
+use log::info;
 
 
 /// [Quake3ServerEvents] implementation for reading Quake 3 Server events from a log file
@@ -61,7 +61,7 @@ impl<Reader: std::io::BufRead + 'static> Quake3ServerEvents for Quake3LogSyncRea
         let stream = translate_quake3_events(stream);
         let stream: Pin<Box<dyn Stream<Item=Quake3Events<'static>>>> = if debug {
             Box::pin(stream
-                .inspect(|yielded_event| trace!("{yielded_event:?}")))
+                .inspect(|yielded_event| info!("{yielded_event:?}")))
         } else {
             Box::pin(stream)
         };

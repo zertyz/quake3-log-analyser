@@ -9,6 +9,7 @@
 //!     app [FLAGS] [OPTIONS]
 //!
 //! FLAGS:
+//!         --debug       Logs to stderr the feed of Quake3ServerEvents, as passed to the summary logic
 //!         --extended    Perform extended analysis on the log files, giving out an extended report as well
 //!     -h, --help        Prints help information
 //!         --pedantic    Considers all errors as fatal -- even the ones that might be ignored (such as an invalid log line)
@@ -20,10 +21,21 @@
 //!
 //!
 //! Explore some execution options:
-//!  - ./target/debug/app -help
-//!  - ./target/debug/app -extended --log-file '<path_to_quake3_log_file>'      # performs extra analysis and gives out a richer report
-//!  - ./target/debug/app -pedantic --log-file '<path_to_quake3_log_file>'      # stop on any error or inconsistency in the events
-//!  - ./target/debug/app -verbose  --log-file '<path_to_quake3_log_file>'      # continues on any non-fatal errors or inconsistencies in the events, but outputs them to stderr
+//!  - ./target/release/app -help
+//!  - ./target/release/app                                                       # reads the log lines from stdin
+//!  - ./target/release/app --debug                                               # same as above, but also logs the parsed lines
+//!  - ./target/release/app -extended --log-file '<path_to_quake3_log_file>'      # performs extra analysis and gives out a richer report
+//!  - ./target/release/app -pedantic --log-file '<path_to_quake3_log_file>'      # stop on any error or inconsistency in the events
+//!  - ./target/release/app -verbose  --log-file '<path_to_quake3_log_file>'      # continues on any non-fatal errors or inconsistencies in the events, but outputs them to stderr
+//! 
+//! To prove this application works with Streams of data of undefined size, run in bash:
+//!  for i in {0..1000}; do cat 'bll/tests/resources/qgames_permissive.log'; done | time -v ./target/release/app --extended >/dev/null
+//! 
+//! To get the number of log lines from above, for lines per second calculation:
+//!  for i in {0..1000}; do cat 'bll/tests/resources/qgames_permissive.log'; done | wc -l
+//! 
+//! Re-run the benchmark, this time without the extended logic extensions -- showing our logic pattern has zero-cost abstractions:
+//!  for i in {0..1000}; do cat 'bll/tests/resources/qgames_permissive.log'; done | time -v ./target/release/app >/dev/null
 //!
 //! Interesting findings:
 //!   1) By running with --verbose on the original log file, we get:
@@ -60,6 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => dal_api::Quake3ServerEventsImplementations::StdinReader,
     };
     let dal_config = Arc::new(dal_api::Config {
+        debug: command_line_options.debug,
         ..dal_api::Config::default()
     });
     let logic_config = bll_api::Config {

@@ -28,10 +28,13 @@ pub struct CommandLineOptions {
     #[structopt(long)]
     pub pedantic: bool,
 
+    /// Logs to stderr the feed of Quake3ServerEvents, as passed to the summary logic
+    #[structopt(long)]
+    pub debug: bool,
+
 
     // OPTIONS
     //////////
-
 
     /// Input file with Quake3 Server log messages
     #[structopt(long)]
