@@ -1,7 +1,9 @@
 //! Contains summary data used to build reports
 
-use std::collections::{BTreeSet, BTreeMap};
-use std::pin::Pin;
+use std::{
+    collections::{BTreeSet, BTreeMap},
+    pin::Pin,
+};
 use futures::Stream;
 
 /// Grouped information for all matches / games available

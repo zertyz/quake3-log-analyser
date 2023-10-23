@@ -2,22 +2,30 @@
 //!
 //! See [summarize_games()]
 
+use crate::{
+    Config,
+    EventAnalyserOperations,
+    dtos::{LogicEvents, CompositeEvent, EventModelViolations},
+};
 use common::types::Result;
 use model::{
     quake3_events::Quake3Events,
-    report::GameMatchSummary,
+    report::{GameMatchSummary, GamesSummary},
 };
-use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::future;
-use std::pin::Pin;
-use std::sync::Arc;
-use futures::{Stream, stream, StreamExt};
 use dal_api::Quake3ServerEvents;
+use std::{
+    borrow::Cow,
+    collections::{
+        BTreeMap,
+        BTreeSet,
+        HashMap,
+        HashSet,
+    },
+    future,
+    sync::Arc,
+};
+use futures::{Stream, stream, StreamExt};
 use log::warn;
-use model::report::GamesSummary;
-use crate::{Config, EventAnalyserOperations};
-use crate::dtos::{LogicEvents, CompositeEvent, EventModelViolations};
 
 
 /// Builds summaries of Quake3 game matches.\
@@ -122,7 +130,7 @@ fn compose<'a>(config: &Arc<Config>, log_dao: Box<dyn Quake3ServerEvents>) -> Re
 /// Logic for extracting the death causes statistics from the [Quake3Events::Kill] events.\
 /// Must be used before [kills()], because (unlike the mentioned processor), this here does not consume
 /// the events.
-fn means_of_death<'a>(config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'a>>) -> impl Stream<Item=CompositeEvent<'a>> {
+fn means_of_death<'a>(_config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'a>>) -> impl Stream<Item=CompositeEvent<'a>> {
 
     stream
         .map(|composite_event| {
@@ -135,7 +143,7 @@ fn means_of_death<'a>(config: &Arc<Config>, stream: impl Stream<Item=CompositeEv
 
             match game_event {
 
-                Quake3Events::Kill { event_id, killer_id, victim_id, reason_id, killer_name, victim_name, reason_name } =>
+                Quake3Events::Kill { event_id, killer_id: _, victim_id: _, reason_id: _, killer_name: _, victim_name: _, reason_name } =>
                     [
                         Some(CompositeEvent::LogicEvent(LogicEvents::MeanOfDeath { quake3_event_id: *event_id, mean_of_death: reason_name.to_owned() })),
                         // doesn't consume the Kill event
@@ -155,7 +163,7 @@ fn means_of_death<'a>(config: &Arc<Config>, stream: impl Stream<Item=CompositeEv
 ///   1) killers get a frag up;
 ///   2) if killed by '<world>', the victim gets a frag down.
 /// NOTE: should be applied before [player_ids_and_nicknames_resolutions()] and after [means_of_death()]
-fn kills<'a>(config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'a>>) -> impl Stream<Item=CompositeEvent<'a>> {
+fn kills<'a>(_config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'a>>) -> impl Stream<Item=CompositeEvent<'a>> {
 
     stream
         .map(|composite_event| {
@@ -168,7 +176,7 @@ fn kills<'a>(config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'a>>)
 
             match game_event {
 
-                Quake3Events::Kill { event_id, killer_id, victim_id, reason_id, killer_name, victim_name, reason_name } => {
+                Quake3Events::Kill { event_id, killer_id, victim_id, reason_id: _, killer_name, victim_name, reason_name: _ } => {
                     if killer_name != "<world>" {
                         Some(CompositeEvent::LogicEvent(LogicEvents::IncFrags { quake3_event_id: *event_id, client_id: *killer_id, name: killer_name.to_owned() }))
                     } else {
@@ -239,8 +247,7 @@ fn player_ids_and_nicknames_resolutions<'a>(config: &Arc<Config>, stream: impl S
                 Quake3Events::ClientConnect { event_id, client_id: id } => {
                     player_ids_and_nicks.insert(*id, None)
                         .map_or_else(|| None,
-                                     //|old_nick| Some(Err(Box::from(format!("Event #{}: Two `ClientConnect {{id: {id}}}` events received before a `ClientDisconnect` -- '{old_nick}' was there already", event_id+1)))))
-                                     |old_nick| Some(CompositeEvent::LogicEvent(LogicEvents::EventModelViolation { quake3_event_id: *event_id, violation: EventModelViolations::DoubleConnect})))
+                                     |_old_nick| Some(CompositeEvent::LogicEvent(LogicEvents::EventModelViolation { quake3_event_id: *event_id, violation: EventModelViolations::DoubleConnect})))
                 },
 
                 Quake3Events::ClientUserinfoChanged { event_id, client_id: id, name: new_name } => {
@@ -266,7 +273,7 @@ fn player_ids_and_nicknames_resolutions<'a>(config: &Arc<Config>, stream: impl S
 }
 
 /// Logic for resolving player scores reported by the game
-fn game_reported_scores<'a>(config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'a>>) -> impl Stream<Item=CompositeEvent<'a>> {
+fn game_reported_scores<'a>(_config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'a>>) -> impl Stream<Item=CompositeEvent<'a>> {
 
     stream
         .map(|composite_event| {
@@ -290,7 +297,7 @@ fn game_reported_scores<'a>(config: &Arc<Config>, stream: impl Stream<Item=Compo
 
 /// Ties together the Logic Events in the operated `stream` into a [GameMatchSummary] ready to be presented to the user.
 /// See [compose()] for docs.
-fn summarize<'a>(config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'a>> + 'a) -> impl Stream<Item=Result<GameMatchSummary>> + 'a {
+fn summarize<'a>(_config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'a>> + 'a) -> impl Stream<Item=Result<GameMatchSummary>> + 'a {
 
     let mut current_game_summary = None;
 
@@ -311,17 +318,17 @@ fn summarize<'a>(config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'
                                 game_reported_scores: None,
                                 disconnected_players: None,
                             })
-                            .and_then(|previous| Some(Err(Box::from(format!("Quake3 Event #{quake3_event_id}: Two `InitGame` events received before a `ShutdownGame`")))) )
+                            .and_then(|_previous| Some(Err(Box::from(format!("Quake3 Event #{quake3_event_id}: Two `InitGame` events received before a `ShutdownGame`")))) )
                     },
 
                     LogicEvents::AddPlayer { quake3_event_id, client_id: id, name } => {
-                        let mut current_game_summary = current_game_summary.as_mut()?;
+                        let current_game_summary = current_game_summary.as_mut()?;
                         (!current_game_summary.players.insert(name.to_string()))
                             .then(|| Err(Box::from(format!("Event #{quake3_event_id}: Player id: {id}, name: {name:?} is already registered"))))
                     },
 
-                    LogicEvents::RenamePlayer { quake3_event_id, client_id: id, old_name, new_name } => {
-                        let mut current_game_summary = current_game_summary.as_mut()?;
+                    LogicEvents::RenamePlayer { quake3_event_id: _, client_id: _, old_name, new_name } => {
+                        let current_game_summary = current_game_summary.as_mut()?;
                         current_game_summary.players.remove(old_name.as_ref());
                         current_game_summary.players.insert(new_name.to_string());
                         current_game_summary.kills.remove(old_name.as_ref())
@@ -330,7 +337,7 @@ fn summarize<'a>(config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'
                     },
 
                     LogicEvents::DeletePlayer { quake3_event_id, client_id: id, name } => {
-                        let mut current_game_summary = current_game_summary.as_mut()?;
+                        let current_game_summary = current_game_summary.as_mut()?;
                         current_game_summary.kills.remove(name.as_ref())
                             .map(|frags| current_game_summary.disconnected_players.get_or_insert_with(|| Vec::new())
                                 .push((id, name.to_string(), frags)));
@@ -338,7 +345,7 @@ fn summarize<'a>(config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'
                             .then(|| Err(Box::from(format!("Event #{quake3_event_id}: Player id: {id}, name: {name:?} was not registered"))))
                     },
 
-                    LogicEvents::MeanOfDeath { quake3_event_id, mean_of_death } => {
+                    LogicEvents::MeanOfDeath { quake3_event_id: _, mean_of_death } => {
                         current_game_summary.as_mut()?.means_of_death.get_or_insert_with(|| BTreeMap::new())
                             .entry(mean_of_death.to_string())
                             .and_modify(|frags| *frags += 1)
@@ -346,8 +353,8 @@ fn summarize<'a>(config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'
                         None
                     },
 
-                    LogicEvents::IncFrags { quake3_event_id, client_id: id, name } => {
-                        let mut current_game_summary = current_game_summary.as_mut()?;
+                    LogicEvents::IncFrags { quake3_event_id: _, client_id: _, name } => {
+                        let current_game_summary = current_game_summary.as_mut()?;
                         current_game_summary.total_kills += 1;
                         current_game_summary.players.insert(name.to_string());
                         current_game_summary.kills.entry(name.to_string())
@@ -356,8 +363,8 @@ fn summarize<'a>(config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'
                         None
                     },
 
-                    LogicEvents::DecFrags { quake3_event_id, client_id: id, name } => {
-                        let mut current_game_summary = current_game_summary.as_mut()?;
+                    LogicEvents::DecFrags { quake3_event_id: _, client_id: _, name } => {
+                        let current_game_summary = current_game_summary.as_mut()?;
                         current_game_summary.total_kills += 1;
                         current_game_summary.players.insert(name.to_string());
                         current_game_summary.kills.entry(name.to_string())
@@ -366,8 +373,8 @@ fn summarize<'a>(config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'
                         None
                     },
 
-                    LogicEvents::ReportedScore { quake3_event_id, frags, client_id, name } => {
-                        let mut current_game_summary = current_game_summary.as_mut()?;
+                    LogicEvents::ReportedScore { quake3_event_id: _, frags, client_id: _, name } => {
+                        let current_game_summary = current_game_summary.as_mut()?;
                         current_game_summary.game_reported_scores.get_or_insert_with(|| BTreeMap::new())
                             .insert(name.to_string(), frags);
                         None
@@ -383,8 +390,6 @@ fn summarize<'a>(config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'
 
                     LogicEvents::EventModelViolation { quake3_event_id, violation } =>
                         Some(Err(Box::from(format!("Event #{quake3_event_id}: violated the event model: {violation:?}")))),
-
-                    _ => None
                 }
             } else {
                 // ignore any remaining Game Events
@@ -398,9 +403,10 @@ fn summarize<'a>(config: &Arc<Config>, stream: impl Stream<Item=CompositeEvent<'
 /// Tests the [summary](super) logic module
 #[cfg(test)]
 mod tests {
-    use dal::sync_file_reader::Quake3LogFileSyncReader;
-    use dal_api::FileReaderInfo;
     use super::*;
+    use dal_api::FileReaderInfo;
+    use dal::sync_file_reader::Quake3LogFileSyncReader;
+    use std::pin::Pin;
 
 
     // unit-isolated tests section
@@ -931,7 +937,7 @@ mod tests {
         assert_eq!(summaries, expected_summaries, "Summaries don't match");
     }
 
-    fn assert_integrated_summaries(config: Arc<Config>, log_file_path: &'static str, expected_summaries: Vec<GameMatchSummary>) {
+    fn _assert_integrated_summaries(config: Arc<Config>, log_file_path: &'static str, expected_summaries: Vec<GameMatchSummary>) {
         let log_dao = Quake3LogFileSyncReader::new(dal_api::Config { debug: false }.into(), FileReaderInfo { log_file_path: Cow::Borrowed(log_file_path) });
         let summaries_stream = summarize_games(config, log_dao).expect("sumarize_games() shouldn't fail here");
         let summaries: Vec<GameMatchSummary> = futures::executor::block_on_stream(summaries_stream).enumerate()
@@ -956,7 +962,7 @@ mod tests {
         }
     }
     impl Quake3ServerEvents for TestDAL<'static> {
-        fn events_stream(mut self: Box<Self>) -> Result<Pin<Box<dyn Stream<Item=Quake3Events<'static>>>>> {
+        fn events_stream(self: Box<Self>) -> Result<Pin<Box<dyn Stream<Item=Quake3Events<'static>>>>> {
             let stream = stream::iter(self.events)
                 .map(|event| event);
             Ok(Box::pin(stream))

@@ -5,10 +5,7 @@ pub use config::*;
 
 
 use common::types::Result;
-use model::{
-    quake3_events::Quake3Events,
-};
-use std::fmt::Debug;
+use model::quake3_events::Quake3Events;
 use std::pin::Pin;
 use futures::Stream;
 

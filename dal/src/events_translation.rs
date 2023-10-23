@@ -2,9 +2,7 @@
 //! library into our simplified models for the events and info we care about
 
 use common::types::Result;
-use model::{
-    quake3_events::Quake3Events,
-};
+use model::quake3_events::Quake3Events;
 use quake3_server_log::types::Quake3FullEvents;
 use std::future;
 use futures::{Stream, StreamExt};

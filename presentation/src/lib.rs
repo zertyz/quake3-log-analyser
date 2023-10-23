@@ -3,14 +3,15 @@
 //! Simply shows the `Stream` of GameMatches as a Json
 
 mod config;
-
-use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::{Debug, Display};
 pub use config::Config;
 
-use std::io::Write;
-use log::warn;
 use model::report::GamesSummary;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Display,
+    io::Write,
+};
+use log::warn;
 
 /// IMPLEMENTATION NOTE: here we use our hand-crafter json instead of the one provided by the serde-json crate so we can better control the formatting of the output
 ///                      to match the exact specification + gain a bit of performance
@@ -26,7 +27,7 @@ pub fn to_json(config: &Config, games_summary_stream: GamesSummary, mut writer: 
     for summary_result in games_summary_stream {
         match summary_result {
             Ok(summary) => {
-                if (game_id > 1) {
+                if game_id > 1 {
                     write(",\n")?;
                 }
                 write(&format!("  \"game_{game_id}\": {{\n"))?;
@@ -73,7 +74,7 @@ pub fn to_json(config: &Config, games_summary_stream: GamesSummary, mut writer: 
 /// IMPLEMENTATION NOTE: this is left to demonstrate the flexibility of the architecture, allowing different implementations to better work with `Stream`,
 ///                      in case the application is enabled by Tokio.
 ///                      PS: some refactorings would be required for the [to_json()] and this function to not have repeated code.
-pub async fn to_json_async(config: &Config, games_summary_stream: GamesSummary, writer: impl Write) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn to_json_async(_config: &Config, _games_summary_stream: GamesSummary, _writer: impl Write) -> Result<(), Box<dyn std::error::Error>> {
     todo!("Placeholder for an async implementation, that would be useful for async applications")
 }
 
@@ -127,10 +128,10 @@ fn serialize_vec(pre_ident: &str, vec: &Vec<(u32, String, i32)>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use model::report::GameMatchSummary;
     use std::io::Cursor;
     use futures::stream;
     use serde_json::Error;
-    use model::report::GameMatchSummary;
 
     #[test]
     fn single_standard_summary() {

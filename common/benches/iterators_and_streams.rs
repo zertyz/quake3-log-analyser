@@ -13,7 +13,6 @@
 
 use criterion::{criterion_group, criterion_main, Criterion, black_box};
 use futures::stream;
-use once_cell::sync::Lazy;
 
 
 fn bench_u32(criterion: &mut Criterion) {

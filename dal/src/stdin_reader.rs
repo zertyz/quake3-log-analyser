@@ -3,13 +3,13 @@
 
 use crate::sync_reader::Quake3LogSyncReader;
 use common::types::Result;
-use model::{
-    quake3_events::Quake3Events,
-};
+use model::quake3_events::Quake3Events;
 use dal_api::{Config, Quake3ServerEvents};
-use std::io::BufReader;
-use std::pin::Pin;
-use std::sync::Arc;
+use std::{
+    io::BufReader,
+    pin::Pin,
+    sync::Arc,
+};
 use futures::Stream;
 
 /// Size for buffering IO (the larger, more RAM is used, but fewer system calls / context switches / hardware requests are required)

@@ -1,24 +1,17 @@
 //! Resting place for [Quake3LogFileSyncReader]
 
 
-use common::types::Result;
-use model::{
-    quake3_events::Quake3Events,
-};
-use dal_api::{Config, FileReaderInfo, Quake3ServerEvents};
-use quake3_server_log::{
-    types::Quake3FullEvents,
-    deserializer_logs::{deserialize_log_line, LogParsingError},
-};
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::Poll;
-use futures::{FutureExt, Stream, stream, StreamExt};
-use log::trace;
-use crate::events_translation::translate_quake3_events;
 use crate::sync_reader::Quake3LogSyncReader;
+use common::types::Result;
+use model::quake3_events::Quake3Events;
+use dal_api::{Config, FileReaderInfo, Quake3ServerEvents};
+use std::{
+    fs::File,
+    io::BufReader,
+    pin::Pin,
+    sync::Arc,
+};
+use futures::Stream;
 
 
 /// Size for buffering IO (the larger, more RAM is used, but fewer system calls / context switches / hardware requests are required)
@@ -58,14 +51,18 @@ impl Quake3ServerEvents for Quake3LogFileSyncReader<'static> {
 /// Unit tests the [sync_file_reader](super) implementation of [dal_api::Quake3ServerEvents]
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
-    use std::collections::HashMap;
     use super::*;
+    use std::{
+        borrow::Cow,
+        collections::HashMap,
+    };
 
 
     /// The location of a good log file, with all lines OK
     const GOOD_LOG_FILE_LOCATION: &str = "tests/resources/qgames_excerpt.log";
+    /// A log file full of bad log entries
     const MALFORMED_LOG_FILE_LOCATION: &str = "tests/resources/malformed_line.log";
+    /// A path to a file that simply isn't there
     const NON_EXISTING_FILE_LOCATION: &str = "/tmp/non-existing.log";
 
 
@@ -87,7 +84,7 @@ mod tests {
         let expected_err = "Couldn't open Quake3 Server log file '/tmp/non-existing.log' for reading: No such file or directory (os error 2)";
         let log_dao = Quake3LogFileSyncReader::new(config(), FileReaderInfo { log_file_path: Cow::Borrowed(NON_EXISTING_FILE_LOCATION) });
         match log_dao.events_stream() {
-            Ok(stream) => panic!("Opening a non-existing file was expected to fail at `Stream` creation, but the operation succeeded"),
+            Ok(_stream) => panic!("Opening a non-existing file was expected to fail at `Stream` creation, but the operation succeeded"),
             Err(stream_creation_err) => assert_eq!(stream_creation_err.to_string(), expected_err.to_string(), "Unexpected `Stream` creation error"),
         }
     }

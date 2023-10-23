@@ -10,10 +10,12 @@
 //!
 //! See also the `benches/quake3_server_event_parsing.rs` for the study of trade-ofs between Regex & `str::split*()`
 
-use std::borrow::Cow;
-use std::collections::BTreeMap;
-use std::str::FromStr;
 use crate::types::Quake3FullEvents;
+use std::{
+    borrow::Cow,
+    collections::BTreeMap,
+    str::FromStr,
+};
 
 
 /// Transforms raw Quake 3 Log lines into the appropriate [model::quake3_logs::LogEvent] variants.\
@@ -24,7 +26,7 @@ pub fn deserialize_log_line<'a>(log_line: &str) -> Result<Quake3FullEvents<'a>, 
         return Err(LogParsingError::EmptyLine)
     }
 
-    let (time, event_name_and_data) = log_line.split_once(" ")
+    let (_time, event_name_and_data) = log_line.split_once(" ")
         .map_or(Err(LogParsingError::UnrecognizedLineFormat), Ok)?;
     if event_name_and_data.starts_with("-") {
         return Ok(Quake3FullEvents::Comment)
@@ -167,7 +169,7 @@ fn map_from_kv_data(data: &str) -> BTreeMap<&str, &str> {
 fn number_from<T: FromStr>(number: &str) -> Option<T> {
     number.parse()
         .map_or_else(
-            |err| None,
+            |_err| None,
             |n| Some(n)
         )
 }

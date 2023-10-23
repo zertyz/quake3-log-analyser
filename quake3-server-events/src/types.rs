@@ -26,14 +26,19 @@ pub enum Quake3FullEvents<'a> {
         name: Cow<'a, str>,
 
     },
+    /// Client started playing
     ClientBegin  {
         id: u32,
     },
+    /// Client quit the game
     ClientDisconnect {
         id: u32,
     },
+    /// Client grab an item
     Item,
+    /// Client sent a chat
     Say,
+    /// Client killed someone or died due to injuries / suicide
     Kill {
         killer_id: u32,
         victim_id: u32,
@@ -42,16 +47,21 @@ pub enum Quake3FullEvents<'a> {
         victim_name: Cow<'a, str>,
         reason_name: Cow<'a, str>,
     },
+    /// Graceful game finish
     Exit,
+    /// Scores for capture the flag games
     CaptureTheFlagResults {
         red: u32,
         blue: u32,
     },
+    /// Scores for Deathmatch games
     Score {
         frags: i32,
         id: u32,
         name: Cow<'a, str>,
     },
+    /// Game is over
     ShutdownGame,
+    /// Log message that shares no event
     Comment,
 }

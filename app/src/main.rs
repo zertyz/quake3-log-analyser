@@ -39,13 +39,13 @@
 
 mod command_line;
 
-use std::borrow::Cow;
-use std::collections::HashSet;
-use std::io::BufWriter;
-use std::sync::Arc;
+use std::{
+    borrow::Cow,
+    collections::HashSet,
+    io::BufWriter,
+    sync::Arc,
+};
 
-/// Buffer to allow efficient output operations
-const OUTPUT_BUFFER_SIZE: usize = 1024 * 1024;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 

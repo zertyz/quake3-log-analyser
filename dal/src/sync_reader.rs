@@ -1,23 +1,18 @@
 //! Resting place for [Quake3LogSyncReader]
 
 
-use common::types::Result;
-use model::{
-    quake3_events::Quake3Events,
-};
-use dal_api::{Config, FileReaderInfo, Quake3ServerEvents};
-use quake3_server_log::{
-    types::Quake3FullEvents,
-    deserializer_logs::{deserialize_log_line, LogParsingError},
-};
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::Poll;
-use futures::{FutureExt, Stream, stream, StreamExt};
-use log::trace;
 use crate::events_translation::translate_quake3_events;
+use common::types::Result;
+use model::quake3_events::Quake3Events;
+use dal_api::{Config, Quake3ServerEvents};
+use quake3_server_log::deserializer_logs::deserialize_log_line;
+use std::{
+    pin::Pin,
+    sync::Arc,
+    task::Poll,
+};
+use futures::{Stream, stream, StreamExt};
+use log::trace;
 
 
 /// [Quake3ServerEvents] implementation for reading Quake 3 Server events from a log file

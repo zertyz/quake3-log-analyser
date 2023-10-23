@@ -1,9 +1,8 @@
 //! Resting place for [LogicEvents], [CompositeEvent] & friends
 
 use std::borrow::Cow;
-use model::{
-    quake3_events::Quake3Events,
-};
+use model::quake3_events::Quake3Events;
+
 
 /// Represents an event that might either be:
 ///   1) An unprocessed raw Quake3 game event,

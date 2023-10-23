@@ -2,6 +2,7 @@
 
 use structopt::StructOpt;
 
+
 /// Command-line options
 #[derive(Debug,StructOpt)]
 #[structopt(about = "
@@ -42,7 +43,7 @@ pub fn parse_from_args() -> CommandLineOptions {
     fill_in_defaults(CommandLineOptions::from_args())
 }
 
-fn fill_in_defaults(mut command_line_options: CommandLineOptions) -> CommandLineOptions {
+fn fill_in_defaults(command_line_options: CommandLineOptions) -> CommandLineOptions {
     // no defaults to fill in yet
     command_line_options
 }

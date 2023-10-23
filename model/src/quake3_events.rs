@@ -38,7 +38,7 @@ impl Quake3Events<'_> {
     }
 
     pub fn unwrap_err(&self) -> &Box<dyn std::error::Error> {
-        if let Quake3Events::Error { event_id, err } = self {
+        if let Quake3Events::Error { event_id: _, err } = self {
             err
         } else {
             panic!("`Quake3Event` {self:?} is not an Error");
