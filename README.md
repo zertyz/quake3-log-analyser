@@ -90,7 +90,7 @@ Additionally, custom linker settings were applied (as detailed in the root `Carg
 
 ## Cross compilation
 
-For cross compilation to ARM devices, consider installing those packages (listed in ArchLinux's nomenclature):
+For cross compilation to ARM devices, consider installing these packages (listed in ArchLinux's nomenclature):
   - `arm-none-eabi-newlib` & `arm-none-eabi-binutils`: base packages for cross compilation
   - `arm-linux-gnueabihf-gcc`: creates binaries to run on an ARM/Linux system -- such as Raspberry Pi
   - `arm-none-eabi-gcc`: creates binaries to run on a bare metal ARM system
