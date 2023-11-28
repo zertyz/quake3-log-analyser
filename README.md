@@ -86,3 +86,31 @@ Based on a thought experiment, the synchronization overhead could negate the ben
 To maximize single-thread performance, several optimizations were made. Most notably, the log file parser was carefully designed to be efficient. Benchmark tests revealed that string manipulation techniques were 3200 times faster than using Regular Expressions for this specific task.
 
 Additionally, custom linker settings were applied (as detailed in the root `Cargo.toml`) to adhere to best practices for generating highly optimized binaries. However, I avoided micro-optimizations that did not result from code cleaning efforts, in order to prioritize code maintainability.
+
+
+## Cross compilation
+
+For cross compilation to ARM devices, consider installing those packages (listed in ArchLinux's nomenclature):
+  - `arm-none-eabi-newlib` & `arm-none-eabi-binutils`: base packages for cross compilation
+  - `arm-linux-gnueabihf-gcc`: creates binaries to run on an ARM/Linux system -- such as Raspberry Pi
+  - `arm-none-eabi-gcc`: creates binaries to run on a bare metal ARM system
+
+### Raspberry Pi 1
+You need to install the appropriate target:
+```bash
+rustup target add arm-unknown-linux-gnueabihf
+```
+Then run the cross-build:
+```bash
+CC=arm-linux-gnueabihf-gcc CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc cargo build --target=arm-unknown-linux-gnueabihf --release
+```
+
+### Raspberry Pi 2
+Install the specific target for the machine's CPU:
+```bash
+rustup target add armv7-unknown-linux-gnueabihf
+```
+Then build it:
+```bash
+CC=arm-linux-gnueabihf-gcc CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc cargo build --target=armv7-unknown-linux-gnueabihf --release
+```
