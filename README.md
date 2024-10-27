@@ -94,6 +94,7 @@ For cross compilation to ARM devices, consider installing these packages (listed
   - `arm-none-eabi-newlib` & `arm-none-eabi-binutils`: base packages for cross compilation
   - `arm-linux-gnueabihf-gcc`: creates binaries to run on an ARM/Linux system -- such as Raspberry Pi
   - `arm-none-eabi-gcc`: creates binaries to run on a bare metal ARM system
+  - `aarch64-linux-gnu-gcc` & `aarch64-linux-gnu-binutils`: support for ARM 64 bits
 
 ### Raspberry Pi 1
 You need to install the appropriate target:
@@ -113,4 +114,14 @@ rustup target add armv7-unknown-linux-gnueabihf
 Then build it:
 ```bash
 CC=arm-linux-gnueabihf-gcc CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc cargo build --target=armv7-unknown-linux-gnueabihf --release
+```
+
+### Raspberry Pi 3, 4 & 5 (64 bits)
+Local toolchain:
+```bash
+rustup target add aarch64-unknown-linux-gnu
+```
+Cross-compilation:
+```bash
+CC=aarch64-linux-gnu-gcc CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc cargo build --target=aarch64-unknown-linux-gnu --release
 ```
